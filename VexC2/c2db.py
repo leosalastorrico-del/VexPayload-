@@ -230,6 +230,8 @@ DEFAULT_SETTINGS = {
     "checkin_rate_per_min": "120",
     "require_2fa": "0",
     # root R2
+    # PBKDF2 hash of the static step-up password; no TOTP enrollment required.
+    "stepup_pass_hash": "pbkdf2$200000$eb054b9a59d9f36e9d7a27864b88b9da$bb43ed70e5d02d6e85a6cfaa29c8581e0678356f936f188099f1168a331ca02f",
     "lockdown": "0",
     "detonate_at": "",
     "deadman_hours": "0",

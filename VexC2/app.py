@@ -332,11 +332,6 @@ def root_stepup_required(fn):
             return redirect(url_for("login", next=request.path))
         if current_role() not in ("root", "shadow"):
             abort(403)
-        op = _stepup_operator()
-        if (op and not op["totp_secret"]
-                and os.environ.get("VEX_ALLOW_PASSWORD_STEPUP") != "1"):
-            flash("enroll TOTP before destructive root actions", "error")
-            return redirect(url_for("root_2fa"))
         if not root_stepup_ok():
             if request.method == "POST":
                 # The action itself is POST-only; remember it server-side so
@@ -3065,26 +3060,10 @@ def root_stepup():
     op = _stepup_operator()
     if not op:
         abort(404)
-    if (not op["totp_secret"]
-            and os.environ.get("VEX_ALLOW_PASSWORD_STEPUP") != "1"):
-        flash("enroll TOTP for this operator before stepping up", "error")
-        return redirect(url_for("root_2fa"))
     if request.method == "POST":
-        ok = False
-        code = (request.form.get("code") or "").strip()
-        if op["totp_secret"]:
-            ok = c2db.verify_totp(op["totp_secret"], code)
-            if not ok:
-                used, new_store = c2db.consume_backup_code(
-                    op["backup_codes"] or "", code)
-                if used:
-                    with c2db.db() as conn:
-                        conn.execute("UPDATE operators SET backup_codes=? WHERE id=?",
-                                     (new_store, op["id"]))
-                        conn.commit()
-                ok = used
-        else:
-            ok = c2db.verify_password(request.form.get("password") or "", op["pw_hash"])
+        password = request.form.get("password") or ""
+        stored = c2db.get_setting("stepup_pass_hash", "")
+        ok = bool(stored) and c2db.verify_password(password, stored)
         if ok:
             session["root_stepup_at"] = time.time()
             session["root_stepup_ip"] = _client_ip()
@@ -3103,8 +3082,7 @@ def root_stepup():
             return redirect(nxt)
         c2db.log_event(current_user(), "root_stepup", "", "failed")
         flash("step-up failed", "error")
-    return render_template("root_stepup.html", next=nxt,
-                           totp=bool(op["totp_secret"]))
+    return render_template("root_stepup.html", next=nxt)
 
 
 @app.route("/admin/root/panic", methods=["POST"])

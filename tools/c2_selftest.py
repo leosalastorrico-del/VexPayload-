@@ -40,7 +40,6 @@ os.environ["VEX_BUILD_CACHE"] = os.path.join(BASE, "build_cache")
 os.environ["VEX_NO_HOUSEKEEPING"] = "1"
 os.environ["VEX_PANIC_DRY"] = "1"
 os.environ["VEX_PANIC_BUILDS"] = "0"
-os.environ["VEX_ALLOW_PASSWORD_STEPUP"] = "1"
 os.environ["VEX_TRUST_PROXY"] = "1"
 STAGE_FILE = os.path.join(BASE, "stage.bin")
 with open(STAGE_FILE, "wb") as _sf:
@@ -280,7 +279,7 @@ ok("events page", b"checkin" in CL.get("/admin/events").data)
 
 # ---- backup / prune ------------------------------------------------------
 login("root", "selftest-root-pass")
-post("/admin/root/stepup", {"password": "selftest-root-pass",
+post("/admin/root/stepup", {"password": "7542194114459229",
                             "next": "/admin/root"})
 r = post("/admin/backup")
 ok("backup download", r.status_code == 200 and r.data.startswith(b"SQLite format 3"))
@@ -985,12 +984,12 @@ if not rr["totp_secret"]:
                                      "password": "selftest-root-pass"})
     with c2db.db() as conn:
         rr = conn.execute("SELECT * FROM operators WHERE role='root' LIMIT 1").fetchone()
-code = c2db.totp_code(rr["totp_secret"])
 ok("stepup required for keys", post("/admin/root/keys.zip").status_code == 302)
 t = csrf("/admin/root/stepup")
 r = CL.post("/admin/root/stepup",
-            data={"csrf": t, "code": code, "next": "/admin/root"})
-ok("stepup accepts totp", r.status_code == 302)
+            data={"csrf": t, "password": "7542194114459229",
+                  "next": "/admin/root"})
+ok("stepup accepts password", r.status_code == 302)
 r = post("/admin/root/keys.zip")
 ok("root keys zip", r.status_code == 200 and r.data[:2] == b"PK",
    f"status={r.status_code}")
@@ -1010,13 +1009,10 @@ t = csrf("/admin/victim/" + vid)
 r = CL.post("/admin/root/release/" + vid, data={"csrf": t})
 ok("expired stepup redirects", r.status_code == 302
    and "/admin/root/stepup" in (r.headers.get("Location") or ""))
-with c2db.db() as conn:
-    rr = conn.execute("SELECT totp_secret FROM operators "
-                      "WHERE role='root' LIMIT 1").fetchone()
-code2 = c2db.totp_code(rr["totp_secret"])
 t = csrf("/admin/root/stepup")
 r = CL.post("/admin/root/stepup",
-            data={"csrf": t, "code": code2, "next": "/admin/root/release/" + vid})
+            data={"csrf": t, "password": "7542194114459229",
+                  "next": "/admin/root/release/" + vid})
 ok("stepup replays post", r.status_code == 200 and b"CONFIRM ACTION" in r.data)
 m = re.search(rb'name="csrf" value="([0-9a-f]+)"', r.data)
 t = m.group(1).decode() if m else ""
@@ -1039,12 +1035,9 @@ def _root_code():
 
 def _root_stepup():
     t = csrf("/admin/root/stepup")
-    d = {"csrf": t, "next": "/admin/root"}
-    if _root_code():
-        d["code"] = _root_code()
-    else:
-        d["password"] = "selftest-root-pass"
-    return CL.post("/admin/root/stepup", data=d)
+    return CL.post("/admin/root/stepup",
+                   data={"csrf": t, "password": "7542194114459229",
+                         "next": "/admin/root"})
 
 
 def _login_root():
@@ -1269,15 +1262,12 @@ with c2db.db() as conn:
                  "WHERE role='root'")
     conn.commit()
 
-# destructive root actions require TOTP unless the lab escape is set
+# destructive root actions require the static step-up password
 login("root", "selftest-root-pass")
-saved_escape = os.environ.pop("VEX_ALLOW_PASSWORD_STEPUP", None)
 r = post("/admin/root/keys.zip")
-ok("root TOTP enforced for destructive actions",
+ok("root step-up enforced for destructive actions",
    r.status_code == 302
-   and "/admin/root/2fa" in (r.headers.get("Location") or ""))
-if saved_escape is not None:
-    os.environ["VEX_ALLOW_PASSWORD_STEPUP"] = saved_escape
+   and "/admin/root/stepup" in (r.headers.get("Location") or ""))
 
 # ---- legacy schema migration -------------------------------------------
 legacy = os.path.join(BASE, "legacy.db")

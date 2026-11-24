@@ -7,15 +7,9 @@
   <form method="post">
     <input type="hidden" name="csrf" value="{{ csrf_token }}">
     <input type="hidden" name="next" value="{{ next }}">
-    {% if totp %}
-    <label>TOTP or backup code</label>
-    <input name="code" autocomplete="one-time-code" autofocus
-           placeholder="6-digit code">
-    {% else %}
-    <label>Root password</label>
+    <label>Step-up password</label>
     <input type="password" name="password" autocomplete="current-password"
-           autofocus placeholder="root password">
-    {% endif %}
+           inputmode="numeric" autofocus placeholder="16-digit step-up password">
     <div style="height:10px"></div>
     <button class="btn" type="submit">UNLOCK ROOT ACTIONS</button>
   </form>
