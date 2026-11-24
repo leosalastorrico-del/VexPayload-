@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}definitive panic{% endblock %}
+{% block content %}
+<h1 style="color:#ff4d6d">Definitive panic</h1>
+<p class="sub">Separate, final interface. Five <b>different</b> numeric pins,
+   in order, plus root step-up. Irreversible.</p>
+
+<div class="panel" style="border-color:#ff4d6d;max-width:760px">
+  <p class="small">Pins: <b>{{ 'configured' if cfg.panic_pins_set else 'NOT configured' }}</b>
+     {% if cfg.panic_locked %} · <b style="color:#ff4d6d">LOCKED after failures</b>{% endif %}</p>
+
+  <details>
+    <summary class="small">set / replace the five pins</summary>
+    <form method="post" action="{{ url_for('root_panic_pins') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      {% for i in range(1, 6) %}
+      <input type="password" name="pin{{ i }}" placeholder="pin {{ i }}"
+             pattern="[0-9]{4,8}" inputmode="numeric" autocomplete="off">
+      {% endfor %}
+      <button class="btn" type="submit">SAVE PINS</button>
+    </form>
+  </details>
+
+  <p class="small" style="margin-top:16px">
+    Burning queues self-destruct to every victim, then destroys the database,
+    keys, uploads, build cache, secrets and built artifacts. The source tree is
+    kept. The panel answers <code>kill</code> to pings, then exits.
+  </p>
+
+  <form method="post" action="{{ url_for('root_burn') }}"
+        onsubmit="return confirm('BURN THE ENTIRE OPERATION? This cannot be undone.')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    {% for i in range(1, 6) %}
+    <input type="password" name="pin{{ i }}" placeholder="pin {{ i }}"
+           pattern="[0-9]{4,8}" inputmode="numeric" autocomplete="off">
+    {% endfor %}
+    <button class="btn red" type="submit">BURN EVERYTHING</button>
+  </form>
+
+  <p style="margin-top:14px">
+    <a class="btn dim" href="{{ url_for('root_console') }}">BACK TO ROOT CONSOLE</a>
+  </p>
+</div>
+{% endblock %}

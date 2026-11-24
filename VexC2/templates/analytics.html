@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}analytics{% endblock %}
+{% block content %}
+<h1>Analytics</h1>
+<p class="sub">last 14 days · all victims</p>
+
+<div class="cards">
+  <div class="card">total <b>{{ s.total }}</b></div>
+  <div class="card ok">paid <b>{{ s.paid }}</b></div>
+  <div class="card ok">revenue <b>${{ "%.0f"|format(s.revenue) }}</b></div>
+  <div class="card">conversion
+    <b>{{ "%.1f"|format((s.paid / (s.total or 1)) * 100) }}%</b></div>
+  <div class="card">armed <b>{{ s.armed }}</b></div>
+  <div class="card danger">kills queued <b>{{ s.killed }}</b></div>
+</div>
+
+<div class="panel">
+  <h2>Daily activity</h2>
+  <table>
+    <tr><th>day</th><th>checkins</th><th></th><th>paid</th></tr>
+    {% for r in series %}
+    <tr>
+      <td class="small">{{ r.day }}</td>
+      <td>{{ r.checkins }}</td>
+      <td style="width:60%">
+        <div style="background:linear-gradient(90deg,#38bdf8,#818cf8);height:8px;width:{{ (100 * r.checkins / peak)|round(1) }}%"></div>
+      </td>
+      <td>{{ r.paid }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="grid" style="margin-top:16px">
+  <div class="panel">
+    <h2>Operating systems</h2>
+    <table>
+      {% for o in os_rows %}
+      <tr><td>{{ o['o'] }}</td><td>{{ o['c'] }}</td>
+          <td class="sub">{{ "%.0f"|format(100 * o['c'] / total) }}%</td></tr>
+      {% else %}<tr><td class="sub">no data</td></tr>{% endfor %}
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Status</h2>
+    <table>
+      {% for st in status_rows %}
+      <tr><td class="status-{{ st['status'] }}">{{ st['status'] }}</td>
+          <td>{{ st['c'] }}</td>
+          <td class="sub">{{ "%.0f"|format(100 * st['c'] / total) }}%</td></tr>
+      {% else %}<tr><td class="sub">no data</td></tr>{% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}

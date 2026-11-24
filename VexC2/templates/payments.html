@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}payments{% endblock %}
+{% block content %}
+<h1>Payments ledger</h1>
+<p class="sub">manual entries · total recorded ${{ '%.2f'|format(total) }}</p>
+
+<div class="panel"><form method="post" action="{{ url_for('payments_page') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <label>victim</label>
+    <select name="vid">
+        {% for v in victims %}
+        <option value="{{ v['vid'] }}">{{ v['hostname'] or v['vid'][:12] }} — {{ v['status'] }}</option>
+        {% endfor %}
+    </select>
+    <label>amount (usd)</label><input name="amount" inputmode="decimal" placeholder="5000">
+    <label>txid / reference</label><input name="txid" placeholder="optional">
+    <label>note</label><input name="note" placeholder="optional">
+    <button class="btn" type="submit">RECORD PAYMENT</button>
+</form></div>
+
+<div class="panel"><table>
+<tr><th>time</th><th>victim</th><th>amount</th><th>txid</th><th>note</th><th>operator</th></tr>
+{% for p in rows %}
+<tr>
+    <td class="sub small">{{ p['ts'] }}</td>
+    <td class="small">{{ p['hostname'] or p['vid'][:16] }}</td>
+    <td>${{ '%.2f'|format(p['amount'] or 0) }}</td>
+    <td class="small">{{ p['txid'] or '' }}</td>
+    <td class="small">{{ p['note'] or '' }}</td>
+    <td class="small">{{ p['actor'] or '' }}</td>
+</tr>
+{% else %}<tr><td colspan="6" class="sub">no payments recorded</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

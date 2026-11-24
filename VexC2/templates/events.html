@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}events{% endblock %}
+{% block content %}
+<h1>Operator events</h1>
+{% if frozen %}<div class="root-banner">AUDIT FROZEN — read-only; admins cannot view this page.</div>{% endif %}
+<p class="sub">newest first · last {{ events|length }}</p>
+<table>
+<tr><th>time</th><th>actor</th><th>kind</th><th>victim</th><th>detail</th></tr>
+{% for e in events %}
+<tr><td class="sub small">{{ e['ts'] }}</td><td>{% if e['actor'] in root_users %}<span class="root-pill">{{ 'SHADOW' if root_users.get(e['actor']) == 'shadow' else 'ROOT' }}</span>{% endif %}{{ e['actor'] }}</td>
+    <td>{{ e['kind'] }}</td>
+    <td class="small">{% if e['vid'] %}<a href="{{ url_for('victim', vid=e['vid']) }}">{{ e['vid'][:16] }}…</a>{% endif %}</td>
+    <td>{{ e['detail'] }}</td></tr>
+{% else %}<tr><td colspan="5" class="sub">no events yet</td></tr>{% endfor %}
+</table>
+{% endblock %}

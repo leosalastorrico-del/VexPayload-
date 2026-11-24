@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}operator timeline{% endblock %}
+{% block content %}
+<h1>{{ op['username'] }}</h1>
+<p class="sub">role {{ op['role'] }} · created {{ op['created'] }} ·
+   last login {{ op['last_login'] or 'never' }}</p>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Action counts</h2>
+    <table>
+      <tr><th>kind</th><th>count</th></tr>
+      {% for c in counts %}
+      <tr><td>{{ c['kind'] }}</td><td>{{ c['c'] }}</td></tr>
+      {% else %}<tr><td colspan="2" class="sub">no events</td></tr>{% endfor %}
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Recent events</h2>
+    <table>
+      <tr><th>time</th><th>kind</th><th>victim</th><th>detail</th></tr>
+      {% for e in events %}
+      <tr><td class="sub small">{{ e['ts'] }}</td><td>{{ e['kind'] }}</td>
+          <td class="small">{{ e['vid'][:16] if e['vid'] else '' }}</td>
+          <td>{{ e['detail'] }}</td></tr>
+      {% else %}<tr><td colspan="4" class="sub">no events</td></tr>{% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}

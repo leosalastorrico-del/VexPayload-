@@ -1,0 +1,8 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Vexpayload.vcxproj" Id="f179ace9-97a6-4752-aec3-97e326eb1636" />
+  <Project Path="loader\xloader.vcxproj" Id="7c3f5a52-1b2e-4b8e-9f61-2a4d8c1e5b73" />
+</Solution>

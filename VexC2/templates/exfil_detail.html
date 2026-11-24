@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}exfil {{ f['id'] }}{% endblock %}
+{% block content %}
+<h1>{{ f['name'] }}</h1>
+<p class="sub">victim {{ f['vid'] }} · {{ f['received'] }}/{{ f['total'] }} chunks · {{ f['status'] }}</p>
+<div class="panel">
+  <p>sha256 <code>{{ f['sha256'] }}</code></p>
+  <p><a class="btn" href="{{ url_for('exfil_stream', fid=f['id']) }}">STREAM DOWNLOAD</a></p>
+  <table>
+    <tr><th>idx</th><th>sha256</th><th>size</th><th>created</th></tr>
+    {% for c in chunks %}
+    <tr><td>{{ c['idx'] }}</td><td class="small">{{ (c['sha256'] or '')[:24] }}</td>
+      <td>{{ c['path']|length }} path chars</td><td class="small">{{ c['created'] }}</td></tr>
+    {% else %}<tr><td colspan="4" class="sub">no chunks</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

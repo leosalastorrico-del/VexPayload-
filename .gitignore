@@ -1,0 +1,41 @@
+# build outputs
+.vs/
+x64/
+Debug/
+Release/
+loader/x64/
+obj/
+*.pdb
+*.ilk
+*.obj
+*.pyc
+__pycache__/
+*.vcxproj.user
+
+# secrets / runtime state
+loader/stage_key.h
+VexC2/.secret
+VexC2/priv.pem
+VexC2/.master
+VexC2/.audit_anchor
+VexC2/vex_c2.db
+VexC2/vex_c2.db-wal
+VexC2/vex_c2.db-shm
+VexC2/build_cache/
+VexC2/uploads/
+VexC2/__pycache__/
+tools/__pycache__/
+
+# binaries and archives
+dist/
+build/
+archive/
+tools/bin/ngrok.exe
+
+# local scratch
+*.jnl
+*.done
+*.key
+
+# generated permission-repair backups
+docs/acl-repair/

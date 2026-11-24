@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ code }}{% endblock %}
+{% block content %}
+<div style="max-width:520px;margin:12vh auto" class="panel">
+  <h1 class="text-danger">{{ code }}</h1>
+  <p class="sub">{{ msg }}</p>
+  <p><a class="btn" href="{{ url_for('dashboard') }}">back to console</a></p>
+</div>
+{% endblock %}

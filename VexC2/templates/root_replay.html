@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}confirm root action{% endblock %}
+{% block content %}
+<h1>Confirm root action</h1>
+<p class="sub">Step-up accepted. The action you attempted was a POST, so it is
+   replayed below — review it and confirm.</p>
+<div class="panel" style="max-width:520px">
+  <p class="small">target: <code>{{ action }}</code></p>
+  <form method="post" action="{{ action }}">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    {% for k, v in fields.items() %}
+    <input type="hidden" name="{{ k }}" value="{{ v }}">
+    {% endfor %}
+    <button class="btn red" type="submit">CONFIRM ACTION</button>
+    <a class="btn dim" href="{{ url_for('root_console') }}">CANCEL</a>
+  </form>
+</div>
+{% endblock %}

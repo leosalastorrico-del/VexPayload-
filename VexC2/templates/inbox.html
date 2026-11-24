@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}inbox{% endblock %}
+{% block content %}
+<h1>Inbox <span class="sub small">latest message per victim</span></h1>
+<div class="panel">
+<table>
+  <tr><th>victim</th><th>host</th><th>status</th><th>last</th><th>unread</th><th>message</th></tr>
+  {% for m in rows %}
+  <tr>
+    <td><a href="{{ url_for('victim', vid=m['vid']) }}">{{ m['vid'][:12] }}</a></td>
+    <td>{{ m['hostname'] or '' }}</td>
+    <td>{{ m['status'] or '' }}</td>
+    <td class="small">{{ m['ts'] or '' }}</td>
+    <td>{{ m['chat_unread'] or 0 }}</td>
+    <td class="small"><b>{{ m['operator'] or m['sender'] }}:</b> {{ m['body'][:120] }}</td>
+  </tr>
+  {% else %}<tr><td colspan="6" class="sub">no conversations yet</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

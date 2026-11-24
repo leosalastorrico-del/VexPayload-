@@ -1,0 +1,34 @@
+[Unit]
+Description=VexC2 control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vex
+Group=vex
+WorkingDirectory=/opt/VexC2
+Environment=PORT=5000
+Environment=VEX_HOST=127.0.0.1
+Environment=VEX_TRUST_PROXY=1
+Environment=VEX_SECURE_COOKIE=1
+Environment=VEX_BACKUP_DIR=/var/lib/vex/backups
+Environment=VEX_PAYMENTS=1
+Environment=VEX_ROOT_USER=Leo
+# put secrets in this file instead of the unit:
+#   VEX_PASS=...
+#   VEX_ROOT_PASS=...
+#   VEX_SECRET=...
+#   VEX_TG_TOKEN=...
+#   VEX_TG_CHAT=...
+EnvironmentFile=-/etc/vex/c2.env
+ExecStart=/usr/bin/python3 /opt/VexC2/run_prod.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/VexC2 /var/lib/vex
+
+[Install]
+WantedBy=multi-user.target

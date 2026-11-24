@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}affiliates{% endblock %}
+{% block content %}
+<h1>Affiliates &amp; payouts</h1>
+<p class="sub">commission is a percentage of payments recorded by that operator</p>
+
+<table>
+<tr><th>operator</th><th>role</th><th>commission %</th><th>recorded</th>
+    <th>commission</th><th>paid out</th><th>balance owed</th></tr>
+{% for a in rows %}
+<tr>
+    <td>{{ a.username }}</td>
+    <td class="sub">{{ a.role }}</td>
+    <td>{{ '%.2f'|format(a.pct) }}</td>
+    <td>${{ '%.2f'|format(a.total) }}</td>
+    <td>${{ '%.2f'|format(a.commission) }}</td>
+    <td>${{ '%.2f'|format(a.paid) }}</td>
+    <td><b>${{ '%.2f'|format(a.balance) }}</b></td>
+</tr>
+{% else %}<tr><td colspan="7" class="sub">no operators</td></tr>{% endfor %}
+</table>
+
+<div class="grid">
+  <div class="panel">
+    <h3>Set commission</h3>
+    <form method="post" action="{{ url_for('affiliates_page') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="commission">
+      <label>operator</label><input name="operator" placeholder="admin">
+      <label>percent</label><input name="amount" inputmode="decimal" placeholder="10">
+      <div style="height:8px"></div>
+      <button class="btn" type="submit">SET</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h3>Record payout</h3>
+    <form method="post" action="{{ url_for('affiliates_page') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="payout">
+      <label>operator</label><input name="operator" placeholder="admin">
+      <label>amount (usd)</label><input name="amount" inputmode="decimal" placeholder="250">
+      <label>note</label><input name="note" placeholder="optional">
+      <div style="height:8px"></div>
+      <button class="btn" type="submit">PAY OUT</button>
+    </form>
+  </div>
+</div>
+
+<h2>Payout history</h2>
+<table>
+<tr><th>time</th><th>operator</th><th>amount</th><th>status</th><th>note</th><th>by</th><th>action</th></tr>
+{% for p in payouts %}
+<tr><td class="sub small">{{ p['ts'] }}</td><td>{{ p['operator'] }}</td>
+    <td>${{ '%.2f'|format(p['amount'] or 0) }}</td>
+    <td>{{ p['status'] or 'paid' }}</td>
+    <td class="small">{{ p['note'] or '' }}</td>
+    <td class="small">{{ p['actor'] or '' }}</td>
+    <td>
+      {% if (p['status'] or 'paid') == 'requested' %}
+      <form method="post" action="{{ url_for('payout_status', pid=p['id'], status='approved') }}" style="display:inline">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="btn" type="submit">APPROVE</button></form>
+      <form method="post" action="{{ url_for('payout_status', pid=p['id'], status='paid') }}" style="display:inline">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="btn" type="submit">MARK PAID</button></form>
+      <form method="post" action="{{ url_for('payout_status', pid=p['id'], status='rejected') }}" style="display:inline">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="btn dim" type="submit">REJECT</button></form>
+      {% endif %}
+    </td></tr>
+{% else %}<tr><td colspan="7" class="sub">no payouts</td></tr>{% endfor %}
+</table>
+{% endblock %}

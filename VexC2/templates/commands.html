@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}commands{% endblock %}
+{% block content %}
+<h1>Remote commands</h1>
+<p class="sub">newest first · last {{ rows|length }}</p>
+<table>
+<tr><th>id</th><th>victim</th><th>type</th><th>arg</th><th>status</th><th>try</th><th>prio</th><th>output</th><th></th></tr>
+{% for c in rows %}
+<tr>
+    <td class="sub small">#{{ c['id'] }}</td>
+    <td class="small"><a href="{{ url_for('victim', vid=c['vid']) }}">{{ c['vid'][:16] }}…</a></td>
+    <td>{{ c['ctype'] }}</td>
+    <td class="small">{{ (c['arg'] or '')[:40] }}</td>
+    <td>{{ c['status'] }}{% if c['error'] %} <span class="sub">({{ c['error'] }})</span>{% endif %}</td>
+    <td class="sub small">{{ c['attempts'] }}/{{ c['max_attempts'] }}</td>
+    <td class="sub small">{{ c['priority'] }}</td>
+    <td class="small">{{ (c['output'] or '')[:90] }}</td>
+    <td>{% if c['status'] in ('pending','dispatched') %}
+        <form method="post" action="{{ url_for('cancel_command', cid=c['id']) }}" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button class="btn red" type="submit">cancel</button>
+        </form>{% endif %}</td>
+</tr>
+{% else %}<tr><td colspan="9" class="sub">no commands queued</td></tr>{% endfor %}
+</table>
+{% endblock %}

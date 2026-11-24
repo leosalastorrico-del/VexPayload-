@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}root 2fa{% endblock %}
+{% block content %}
+<h1>Root two-factor</h1>
+<p class="sub">TOTP for the root operator. Enroll once; the login form will then require a code.</p>
+
+{% if secret %}
+<div class="panel">
+  <h2>Enrollment secret</h2>
+  <p>Add this secret to your authenticator <b>now</b>. It is shown once.</p>
+  <code>{{ secret }}</code>
+  <p class="small sub">otpauth URI: <code>{{ otpauth }}</code></p>
+  <h3>Backup codes</h3>
+  <p class="small">Each code works once. Store them offline.</p>
+  <pre class="small">{{ codes|join('\n') }}</pre>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Status</h2>
+  <p>root 2FA: {% if enrolled %}<span class="badge on">enabled</span>{% else %}<span class="badge off">disabled</span>{% endif %}</p>
+  {% if not enrolled %}
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="enroll">
+    <label>current password</label>
+    <input type="password" name="password" autocomplete="current-password" required>
+    <button class="btn" type="submit">ENROLL ROOT TOTP</button>
+  </form>
+  {% else %}
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="disable">
+    <label>current TOTP or backup code</label>
+    <input name="code" autocomplete="one-time-code">
+    <button class="btn red" type="submit">DISABLE ROOT 2FA</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

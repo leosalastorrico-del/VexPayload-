@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}templates{% endblock %}
+{% block content %}
+<h1>Negotiation templates</h1>
+<p class="sub">first / deadline / paid and any custom reply</p>
+<table>
+<tr><th>name</th><th>body</th><th>updated</th></tr>
+{% for t in rows %}
+<tr><td>{{ t['name'] }}</td><td class="small">{{ t['body'] }}</td>
+    <td class="sub small">{{ t['updated'] }}</td></tr>
+{% else %}<tr><td colspan="3" class="sub">none</td></tr>{% endfor %}
+</table>
+
+<h2>Edit / add</h2>
+<form method="post" action="{{ url_for('templates_page') }}">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <label>name</label><input name="name" placeholder="first">
+  <label>body</label><textarea name="body" rows="4"></textarea>
+  <div style="height:8px"></div>
+  <button class="btn" type="submit">SAVE TEMPLATE</button>
+</form>
+{% endblock %}

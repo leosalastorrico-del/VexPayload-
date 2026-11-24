@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}operators{% endblock %}
+{% block content %}
+<h1>Operators</h1>
+<p class="sub">pbkdf2 passwords · optional TOTP · roles viewer / negotiator / affiliate / admin{% if session.get('role') == 'root' %} / root{% endif %}</p>
+
+{% if created %}
+<div class="flash">
+  operator <b>{{ created.user }}</b> created.
+  {% if created.totp %}
+  <br>TOTP secret (add it now, shown once): <code>{{ created.totp }}</code>
+  <br>otpauth URI: <code>otpauth://totp/VexC2:{{ created.user }}?secret={{ created.totp }}&issuer=VexC2</code>
+  <br>backup codes (each works once):
+  <code>{{ created.codes|join(' ') }}</code>
+  {% endif %}
+</div>
+{% endif %}
+
+<table>
+<tr><th>id</th><th>username</th><th>role</th><th>2FA</th><th>created</th><th>last login</th><th></th></tr>
+{% for o in rows %}
+<tr><td>{{ o['id'] }}</td><td>{{ o['username'] }}</td><td>{{ o['role'] }}</td>
+    <td>{{ 'on' if o['totp_secret'] else 'off' }}</td>
+    <td class="sub small">{{ o['created'] }}</td>
+    <td class="sub small">{{ o['last_login'] or 'never' }}</td>
+    <td>{% if o['username'] != session.get('user') %}
+        <form method="post" action="{{ url_for('operator_delete', oid=o['id']) }}" class="inline"
+              onsubmit="return confirm('Delete operator?')">
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button class="btn red" type="submit">DEL</button>
+        </form>{% endif %}
+        {% if session.get('role') == 'root' and o['role'] != 'root' %}
+        <form method="post" action="{{ url_for('root_view_as', username=o['username']) }}" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button class="btn" type="submit">VIEW</button>
+        </form>
+        <a class="btn dim" href="{{ url_for('operator_timeline', oid=o['id']) }}">LOG</a>
+        {% endif %}</td></tr>
+{% endfor %}
+</table>
+
+<h2>Add operator</h2>
+<form method="post" class="panel" style="max-width:520px">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <label>username</label><input name="username">
+  <label>password (8+ chars)</label><input type="password" name="password">
+  <label>role</label>
+  <select name="role"><option value="viewer">viewer</option><option value="negotiator">negotiator</option><option value="affiliate">affiliate</option><option value="admin">admin</option>{% if session.get('role') == 'root' %}<option value="root">root</option><option value="shadow">shadow</option>{% endif %}</select>
+  <label><input type="checkbox" name="enable_totp" value="1" style="width:auto"> enable TOTP 2FA (secret + backup codes shown once)</label>
+  <div style="height:12px"></div>
+  <button class="btn" type="submit">CREATE</button>
+</form>
+{% endblock %}

