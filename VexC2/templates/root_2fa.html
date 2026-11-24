@@ -7,7 +7,9 @@
 {% if secret %}
 <div class="panel">
   <h2>Enrollment secret</h2>
-  <p>Add this secret to your authenticator <b>now</b>. It is shown once.</p>
+  <p>Add this secret to your authenticator <b>now</b>. It is shown once.
+     Re-enrolling invalidates every older authenticator entry.</p>
+  {% if qr_svg %}<div style="background:#fff;padding:10px;display:inline-block;max-width:220px">{{ qr_svg|safe }}</div>{% endif %}
   <code>{{ secret }}</code>
   <p class="small sub">otpauth URI: <code>{{ otpauth }}</code></p>
   <h3>Backup codes</h3>

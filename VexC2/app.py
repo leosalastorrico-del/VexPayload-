@@ -3040,11 +3040,21 @@ def root_2fa():
             session.pop("must_enroll_2fa", None)
             return redirect(url_for("root_2fa"))
     otpauth = ""
+    qr_svg = ""
     if secret:
         otpauth = ("otpauth://totp/VEX:" + str(op["username"]) + "?secret=" +
                    secret + "&issuer=VEX&digits=6&period=30")
+        try:
+            import qrcode
+            import qrcode.image.svg
+            img = qrcode.make(otpauth, image_factory=qrcode.image.svg.SvgPathImage)
+            buf = io.BytesIO()
+            img.save(buf)
+            qr_svg = buf.getvalue().decode("utf-8", "replace")
+        except Exception:
+            qr_svg = ""
     return render_template("root_2fa.html", enrolled=enrolled, secret=secret,
-                           codes=codes, otpauth=otpauth)
+                           codes=codes, otpauth=otpauth, qr_svg=qr_svg)
 
 
 @app.route("/admin/root/stepup", methods=["GET", "POST"])
