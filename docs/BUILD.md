@@ -552,9 +552,11 @@ One command builds and tests everything:
 
 ## Known limits
 
-- **UAC bypass** tries `fodhelper.exe` then `computerdefaults.exe` via the
-  HKCU `ms-settings` command key (10 s wait, keys removed on both paths);
-  the `runas` prompt remains the fallback. Patched on some Win11 builds.
+- **UAC bypass** tries the auto-elevated `CMSTPLUA` COM object
+  (`ICMLuaUtil::ShellExec`, no registry footprint) first, then
+  `fodhelper.exe`/`computerdefaults.exe` via the HKCU `ms-settings` command
+  key (10 s child-event wait, keys removed on both paths); the `runas` prompt
+  remains the fallback. Patched or policy-blocked on some Win11 builds.
 - **Anti-forensics** is best-effort: USN journals, prefetch, shimcache value,
   BAM user keys, PSReadLine history and RDP caches. SRUM/Amcache files are
   locked by the OS and skipped when held open.

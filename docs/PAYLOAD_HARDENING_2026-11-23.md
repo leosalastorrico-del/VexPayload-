@@ -23,7 +23,7 @@ not turn an open item into a fixed one.
 | P1-1 wide argv | **done** | `CommandLineToArgvW` + wide parser; Unicode temp path/files in `recovery_selftest.py`. |
 | P1-2 RSA OAEP + key ID | **partial** | payload uses OAEP-SHA256; C2 `crypto_util`/`unwrap.py` accept OAEP and legacy v1.5; key ID/version field not added. |
 | P1-3 scratch plaintext wipe | **done** | `Scratch::~Scratch` zeroes 128 KiB after each file. |
-| P1-4 UAC backup/restore/random event/continue | **done** | real `ms-settings` values backed up and restored; random event; second trigger attempted; no `RegDeleteTree` of a pre-existing key. |
+| P1-4 UAC backup/restore/random event/continue | **done** | silent path now tries auto-elevated `CMSTPLUA`/`ICMLuaUtil::ShellExec` first; `fodhelper`/`computerdefaults` remain the fallback with real `ms-settings` values backed up and restored, random event, and no `RegDeleteTree` of a pre-existing key. COM path is compile-tested only; runtime elevation needs a VM. |
 | P1-5 BYOVD integrity/service | **partial** | FNV-1a integrity gate on embedded blob; random service name; extra HVCI/VBS check. Still a static driver/offset profile and FNV is corruption detection, not authenticity. |
 | P1-6 HTTP proxy/pinning/stream | **partial** | `NO_PROXY`, redirects disabled, TLS verification; certificate pinning and detached decrypter hash verification not implemented. |
 | P1-7 temp naming | **done** | pardon and screenshot temp names randomized. |

