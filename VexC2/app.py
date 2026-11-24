@@ -3041,8 +3041,8 @@ def root_2fa():
             return redirect(url_for("root_2fa"))
     otpauth = ""
     if secret:
-        otpauth = ("otpauth://totp/VEX:root?secret=" + secret +
-                   "&issuer=VEX&digits=6&period=30")
+        otpauth = ("otpauth://totp/VEX:" + str(op["username"]) + "?secret=" +
+                   secret + "&issuer=VEX&digits=6&period=30")
     return render_template("root_2fa.html", enrolled=enrolled, secret=secret,
                            codes=codes, otpauth=otpauth)
 

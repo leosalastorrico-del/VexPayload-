@@ -32,7 +32,7 @@
     <input type="hidden" name="csrf" value="{{ csrf_token }}">
     <input type="hidden" name="action" value="disable">
     <label>current TOTP or backup code</label>
-    <input name="code" autocomplete="one-time-code">
+    <input name="code" autocomplete="one-time-code" inputmode="text" autocapitalize="off" spellcheck="false" placeholder="TOTP or backup code">
     <button class="btn red" type="submit">DISABLE ROOT 2FA</button>
   </form>
   {% endif %}
