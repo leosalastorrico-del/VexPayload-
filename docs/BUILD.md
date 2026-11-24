@@ -612,6 +612,7 @@ One command builds and tests everything:
 - Decrypter 7.0: x86 + x64 builds, `--selftest`, hex/base64 keys, FR/DE/PT, drag-and-drop GUI, backup/restore privileges.
 
 - Root role: `VEX_ROOT_USER` (default `root`) and `VEX_ROOT_PASS` seed a single root operator above admin; root bypasses role checks, only root sees `/admin/root`, admins cannot create/delete it. `tools/root_pin.py` and `tools/root_reset.py` operate by role, so a renamed root account still works.
+- Local TOTP for operators without a phone app: `python tools/totp.py --username Leo` prints the current code from the panel DB; `--secret <base32>` works without DB access. `--watch` keeps printing the countdown.
 - Decrypter accepts repeated `--journal` and merges v2/v3 journals.
 
 - Campaign builder: `tools/campaign_build.py` injects a generated `campaign_config.h` (host/token), compiles into isolated OutDir/IntDir, packs `dist/campaigns/<slug>/stager.exe` + `stage.bin`, records SHA256, and restores the header. `/admin/campaign/<id>/compile` runs it as a job; `campaign_selftest.py` proves host injection, footer CRC/HMAC, and staging.
