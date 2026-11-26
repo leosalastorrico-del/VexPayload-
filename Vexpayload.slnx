@@ -2,7 +2,9 @@
   <Configurations>
     <Platform Name="x64" />
     <Platform Name="x86" />
+    <Platform Name="Win32" />
   </Configurations>
   <Project Path="Vexpayload.vcxproj" Id="f179ace9-97a6-4752-aec3-97e326eb1636" />
   <Project Path="loader\xloader.vcxproj" Id="7c3f5a52-1b2e-4b8e-9f61-2a4d8c1e5b73" />
+  <Project Path="universal_stager.vcxproj" Id="7d6a3e2b-5c1f-4b7a-9e6d-2f8c1a4b9e30" />
 </Solution>
