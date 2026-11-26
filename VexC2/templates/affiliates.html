@@ -6,7 +6,7 @@
 
 <table>
 <tr><th>operator</th><th>role</th><th>commission %</th><th>recorded</th>
-    <th>commission</th><th>paid out</th><th>balance owed</th></tr>
+    <th>commission</th><th>paid out</th><th>committed</th><th>balance owed</th></tr>
 {% for a in rows %}
 <tr>
     <td>{{ a.username }}</td>
@@ -15,9 +15,10 @@
     <td>${{ '%.2f'|format(a.total) }}</td>
     <td>${{ '%.2f'|format(a.commission) }}</td>
     <td>${{ '%.2f'|format(a.paid) }}</td>
+    <td>${{ '%.2f'|format(a.committed) }}</td>
     <td><b>${{ '%.2f'|format(a.balance) }}</b></td>
 </tr>
-{% else %}<tr><td colspan="7" class="sub">no operators</td></tr>{% endfor %}
+{% else %}<tr><td colspan="8" class="sub">no operators</td></tr>{% endfor %}
 </table>
 
 <div class="grid">

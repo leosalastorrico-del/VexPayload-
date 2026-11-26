@@ -24,6 +24,8 @@ VexC2/vex_c2.db-shm
 VexC2/build_cache/
 VexC2/uploads/
 VexC2/__pycache__/
+VexC2/panel.out.log
+VexC2/panel.err.log
 tools/__pycache__/
 
 # binaries and archives

