@@ -265,6 +265,49 @@ Outputs: `dist\stager_x86.exe`, `dist\Vexpayload_x86.exe`,
 .\dist\stager_x86.exe --selftest --no-elevate -v
 ```
 
+### Single-file universal stager
+
+`dist\universal_stager.exe` is one distributed 32-bit PE carrying both packed
+stagers as RCDATA:
+
+- x64 stager at resource 101
+- x86 stager at resource 102
+
+At runtime it reads `GetNativeSystemInfo`:
+
+- 64-bit Windows → extracts the x64 stager to a random temp `.exe` and starts it.
+- 32-bit Windows → extracts the x86 stager and starts it.
+- `--arch x86` forces the x86 path for testing; it is stripped before the child
+  receives the command line.
+
+Harness flags (`--safe`, `--selftest`, `--inspect`, `--persist-preview`,
+`--encrypt`, etc.) are waited on and the child exit code is propagated, so
+`--safe` still returns 2. Implant mode exits immediately and schedules the
+extracted temp copy for deletion on the next boot (Windows keeps the image
+mapped while the child runs).
+
+Build after both stagers exist:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_x86.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_universal.ps1
+```
+
+Outputs: `dist\universal_stager.exe`, `dist\BUILD_UNIVERSAL.txt`.
+
+Test:
+
+```powershell
+.\dist\universal_stager.exe --selftest --no-elevate
+.\dist\universal_stager.exe --arch x86 --selftest --no-elevate
+.\dist\universal_stager.exe --safe --no-elevate
+```
+
+The last command must return 2. The file is a launcher, not a single in-memory
+process: the selected stager still lives in its own process. On x64 Windows the
+32-bit launcher runs under WOW64, which is what lets it start the x64 stager.
+
 ## C2 (`VexC2/` — canonical, v3.0 production)
 
 ```

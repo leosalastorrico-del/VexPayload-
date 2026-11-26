@@ -41,3 +41,6 @@ tools/bin/ngrok.exe
 
 # generated permission-repair backups
 docs/acl-repair/
+
+# local audit evidence and lab scratch
+artifacts/
