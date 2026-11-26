@@ -205,10 +205,20 @@ def _filter_root_events(events):
     with c2db.db() as conn:
         roots = {r[0] for r in conn.execute(
             "SELECT username FROM operators WHERE role IN ('root','shadow')")}
-    return [e for e in events
-            if e["actor"] not in roots
-            and e["actor"] not in ("root", "shadow")
-            and not (e["kind"] or "").startswith("root_")]
+    out = []
+    for e in events:
+        if (e["actor"] in roots or e["actor"] in ("root", "shadow")
+                or (e["kind"] or "").startswith("root_")):
+            continue
+        item = dict(e)
+        for name in roots:
+            if not name:
+                continue
+            item["detail"] = (item["detail"] or "").replace(name, "operator")
+            if item["actor"] == name:
+                item["actor"] = "operator"
+        out.append(item)
+    return out
 
 
 def _safe_next(raw: str, fallback: str) -> str:

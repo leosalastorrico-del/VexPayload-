@@ -897,8 +897,10 @@ ok("affiliate payout requested", any(abs(p["amount"] - 5) < 0.01
                                      for p in c2db.list_payouts()))
 login("admin", "selftest-pass")
 c2db.log_event("root", "root_probe_event", "", "phantom")
-ok("root events hidden from admin",
-   b"root_probe_event" not in CL.get("/admin/events").data)
+c2db.log_event("auth", "login_failed", "", "root@127.0.0.1")
+_ev = CL.get("/admin/events").data
+ok("root events hidden from admin", b"root_probe_event" not in _ev)
+ok("root name hidden from event detail", b"root@127.0.0.1" not in _ev)
 pid = [p["id"] for p in c2db.list_payouts() if p["status"] == "requested"][0]
 post("/admin/payout/%d/approved" % pid, {})
 ok("payout approved", [p["status"] for p in c2db.list_payouts()
