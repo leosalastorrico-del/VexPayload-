@@ -387,8 +387,8 @@ body.portal .shell.auth main{display:block;padding-top:36px;max-width:1040px}
 
     <div class="sidefoot">
       <div class="userchip">
-        <span class="avatar">{{ (session.get('user') or '?')[:2] }}</span>
-        <span><b>{{ session.get('user') }}</b><span>{{ session.get('role') }}</span></span>
+        <span class="avatar">{{ (current_user or '?')[:2] }}</span>
+        <span><b>{{ current_user }}</b><span>{{ current_role }}</span></span>
         <a class="logout" href="{{ url_for('logout') }}">[exit]</a>
       </div>
     </div>
@@ -408,7 +408,7 @@ body.portal .shell.auth main{display:block;padding-top:36px;max-width:1040px}
       {% if impersonating %}
       <div class="root-banner">
         VIEWING AS {{ current_user }} ({{ current_role }}) — READ ONLY
-        <form method="post" action="{{ url_for('root_view_as_stop') }}" class="inline"
+        <form method="post" action="{{ url_for('view_as_stop') }}" class="inline"
               style="display:inline">
           <input type="hidden" name="csrf" value="{{ csrf_token }}">
           <button class="btn" type="submit" style="margin-left:8px">STOP VIEW</button>

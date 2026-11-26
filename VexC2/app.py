@@ -3345,6 +3345,11 @@ def root_view_as(username):
     return redirect(url_for("dashboard"))
 
 
+@app.route("/admin/view-as/stop", methods=["POST"])
+def view_as_stop():
+    return root_view_as_stop()
+
+
 @app.route("/admin/root/view-as/stop", methods=["POST"])
 def root_view_as_stop():
     if not session.get("view_as_root"):
