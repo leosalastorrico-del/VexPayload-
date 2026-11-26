@@ -29,6 +29,12 @@ namespace {
         if (n && n < MAX_PATH) dirs.emplace_back(std::wstring(buf) + L"\\Temp");
         n = GetEnvironmentVariableW(L"ProgramData", buf, MAX_PATH);
         if (n && n < MAX_PATH) dirs.emplace_back(std::wstring(buf) + L"\\VEX");
+        n = GetModuleFileNameW(NULL, buf, MAX_PATH);
+        if (n && n < MAX_PATH) {
+            std::wstring self = buf;
+            size_t slash = self.find_last_of(L"\\/");
+            if (slash != std::wstring::npos) dirs.emplace_back(self.substr(0, slash));
+        }
 
         for (const std::wstring& dir : dirs) {
             CreateDirectoryW(dir.c_str(), NULL);
