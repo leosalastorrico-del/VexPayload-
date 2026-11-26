@@ -231,6 +231,40 @@ Expected: `[selftest] payload alive`, `[selftest] crypto ok`, exit 0. This
 proves the mapped image runs CRT, threads and bcrypt. `--inspect` prints the
 payload size/entry/image without executing anything.
 
+### Legacy Windows 10 (1507–1809)
+
+The payload accepts **Windows 10 1507 (10.0.10240) and newer**. Compatibility
+choices:
+
+- PE subsystem remains 6.00; no Windows 10-only import is linked.
+- The default heap is used (no `EnableSegmentHeap` manifest element, which is
+  not available on early Windows 10).
+- `CMSTPLUA`/`ICMLuaUtil` is preferred on build **17763+**; older builds try
+  `fodhelper`/`computerdefaults` first, then `ICMLuaUtil`, then `runas`.
+- Scheduled-task XML import is followed by an `schtasks /sc onlogon` fallback
+  for old TASKHOST builds.
+- WinHTTP pins TLS 1.2; 1507 does not always negotiate it by default.
+- BYOVD is intentionally limited to **19041–19045**; older builds report
+  `byovd=unsupported-build` and use the `sc stop`/`taskkill` fallback.
+- A non-Windows-10 host exits with an explicit message instead of corrupting
+  state.
+- The x86 loader now supports PE32 relocations, x86 SEH (no `.pdata`), and
+  exported `Nt*` fallbacks instead of x64-only syscall stubs.
+
+Build the optional 32-bit pair after the normal x64 build (it reuses the same
+stage key):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_x86.ps1
+```
+
+Outputs: `dist\stager_x86.exe`, `dist\Vexpayload_x86.exe`,
+`dist\stage_x86.bin`, `dist\BUILD_X86.txt`. Test with:
+
+```powershell
+.\dist\stager_x86.exe --selftest --no-elevate -v
+```
+
 ## C2 (`VexC2/` — canonical, v3.0 production)
 
 ```

