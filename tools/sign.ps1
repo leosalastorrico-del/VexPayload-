@@ -4,7 +4,8 @@ param(
     [string]$Pfx = "",
     [string]$Password = "",
     [string]$Timestamp = "https://timestamp.digicert.com",
-    [string]$ExpectedThumbprint = ""
+    [string]$ExpectedThumbprint = "",
+    [string[]]$Targets = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,10 +13,14 @@ $Root = Split-Path -Parent $PSScriptRoot
 # The packed stager must NOT be Authenticode-signed: the certificate table is
 # appended after the VXPAY003 footer and breaks loading. Sign the payload and
 # loader before packing instead, then rebuild the stager.
-$targets = @(
-    (Join-Path $Root "x64\Release\Vexpayload.exe"),
-    (Join-Path $Root "loader\x64\Release\xloader.exe")
-) | Where-Object { Test-Path $_ }
+if ($Targets.Count -gt 0) {
+    $targets = $Targets | Where-Object { Test-Path $_ }
+} else {
+    $targets = @(
+        (Join-Path $Root "x64\Release\Vexpayload.exe"),
+        (Join-Path $Root "loader\x64\Release\xloader.exe")
+    ) | Where-Object { Test-Path $_ }
+}
 
 if (-not $targets) {
     Write-Host "[!] no signed targets found - build first"

@@ -296,6 +296,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_universal.ps1
 
 Outputs: `dist\universal_stager.exe`, `dist\BUILD_UNIVERSAL.txt`.
 
+Production build (x64 + x86 + universal + manifest + release directory):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_all.ps1 `
+  -Test -StageSeedFile D:\secure\vex_stage_seed.bin
+```
+
+Outputs land in `release-dist\` (not `release\`, which collides with the x86
+`Release` build directory on case-insensitive Windows):
+
+- `universal_stager.exe`
+- `BUILD_MANIFEST.json` (schema 2, portable universal path)
+- `BUILD_UNIVERSAL.txt`
+- `SHA256SUMS.txt`
+
+`-StageSeedFile` makes the x64/x86 stagers and universal launcher reproducible
+for the same seed and source. Without it, the stage key/salt/nonce are random
+by design. `/Brepro` and a commit-derived `VEX_BUILD_STAMP` keep the payload
+deterministic; Release builds have no PDB debug directory.
+
 Test:
 
 ```powershell

@@ -86,7 +86,8 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions>/Brepro %(AdditionalOptions)</AdditionalOptions>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
     </Link>
     <!-- Default heap: SegmentHeap is not available on early Windows 10. -->
   </ItemDefinitionGroup>
@@ -104,7 +105,8 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions>/Brepro %(AdditionalOptions)</AdditionalOptions>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
     </Link>
     <!-- Default heap: SegmentHeap is not available on early Windows 10. -->
   </ItemDefinitionGroup>
@@ -120,7 +122,8 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions>/Brepro %(AdditionalOptions)</AdditionalOptions>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
     </Link>
     <!-- Default heap: SegmentHeap is not available on early Windows 10. -->
   </ItemDefinitionGroup>
@@ -139,7 +142,8 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions>/Brepro %(AdditionalOptions)</AdditionalOptions>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
     </Link>
     <!-- Default heap: SegmentHeap is not available on early Windows 10. -->
   </ItemDefinitionGroup>

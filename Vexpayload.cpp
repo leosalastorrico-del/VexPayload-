@@ -65,6 +65,13 @@
 #include "campaign_config.h"
 #endif
 
+#if __has_include("build/build_stamp.h")
+#include "build/build_stamp.h"
+#endif
+#ifndef VEX_BUILD_STAMP
+#define VEX_BUILD_STAMP "VEX-dev"
+#endif
+
 // Windows 10 RTM is 10.0.10240. Windows 11 still reports major 10; Server
 // 2016/2019/2022 do too, so the major/build pair is the compatibility gate.
 static bool QueryWindowsVersion(DWORD* major, DWORD* build) {
@@ -3900,7 +3907,7 @@ namespace vex {
         }
 
         static std::string BuildStamp() {
-            return std::string(__DATE__) + " " + __TIME__;
+            return VEX_BUILD_STAMP;
         }
 
         static std::wstring SanitizeTag(const std::wstring& in) {

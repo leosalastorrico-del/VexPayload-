@@ -2731,6 +2731,12 @@ def campaign_nuke(cid):
                     except OSError:
                         pass
         c2db.update_campaign_build(b["id"], "revoked", "campaign nuked", "", "")
+    # Remove the whole campaign artifact directory, including x64/x86 stagers
+    # and the universal launcher, not just the one path recorded per build.
+    camp_dir = os.path.realpath(os.path.join(
+        rootdir, campaign_builder.slugify(c["name"])))
+    if camp_dir.startswith(rootdir + os.sep) and os.path.isdir(camp_dir):
+        shutil.rmtree(camp_dir, ignore_errors=True)
     try:
         cfg = json.loads(c["config"] or "{}")
     except ValueError:

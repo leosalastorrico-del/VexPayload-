@@ -7,6 +7,8 @@ param(
     [switch]$ForceTls,
     [switch]$Sign,
     [string]$Pfx = "",
+    [string]$PfxPassword = "",
+    [string]$StageSeedFile = "",
     [switch]$LabTests,
     [switch]$MemTests
 )
@@ -33,9 +35,32 @@ $defs = @()
 if ($ForceTls) { $defs += "/p:VexForceTls=true" }
 
 # Per-build stage key: the loader and packer must share it; never the public
-# constant that used to live in both files.
+# constant that used to live in both files. A release seed can be supplied for
+# a reproducible signed build; the seed itself must stay out of Git.
 $stageKey = New-Object byte[] 32
-([Security.Cryptography.RandomNumberGenerator]::Create()).GetBytes($stageKey)
+if ($StageSeedFile) {
+    if (-not (Test-Path $StageSeedFile)) { throw "stage seed file not found: $StageSeedFile" }
+    $stageKey = [IO.File]::ReadAllBytes((Resolve-Path $StageSeedFile))
+    if ($stageKey.Length -ne 32) { throw "stage seed must be exactly 32 bytes" }
+} else {
+    ([Security.Cryptography.RandomNumberGenerator]::Create()).GetBytes($stageKey)
+}
+
+# Deterministic build stamp for decoy freshness. Never use __DATE__/__TIME__:
+# those make otherwise identical builds hash differently.
+$buildId = if ($env:VEX_BUILD_ID) { $env:VEX_BUILD_ID } else {
+    try { (git -C $Root rev-parse --short HEAD 2>$null) } catch { "dev" }
+}
+if (-not $buildId) { $buildId = "dev" }
+if ($StageSeedFile) {
+    $env:VEX_PACK_SEED = (($stageKey | ForEach-Object { "{0:x2}" -f $_ }) -join "")
+} else {
+    Remove-Item Env:VEX_PACK_SEED -ErrorAction SilentlyContinue
+}
+New-Item -ItemType Directory -Force -Path (Join-Path $Root "build") | Out-Null
+$stampHeader = "#pragma once`r`n#define VEX_BUILD_STAMP `"VEX-$buildId`"`r`n"
+[IO.File]::WriteAllText((Join-Path $Root "build\build_stamp.h"), $stampHeader,
+    [Text.UTF8Encoding]::new($false))
 $stageHex = ($stageKey | ForEach-Object { "0x{0:x2}" -f $_ }) -join ", "
 $stageHeader = @"
 #pragma once
@@ -51,7 +76,7 @@ Step "payload" { & $MSBuild (Join-Path $Root "Vexpayload.vcxproj") /p:Configurat
 Step "loader"  { & $MSBuild (Join-Path $Root "loader\xloader.vcxproj") /p:Configuration=$Configuration /p:Platform=$Platform /m /v:m /nologo }
 if ($Sign) {
     if (-not $Pfx) { throw "-Sign requires -Pfx <certificate.pfx>" }
-    Step "sign" { & (Join-Path $Root "tools\sign.ps1") -Pfx $Pfx }
+    Step "sign" { & (Join-Path $Root "tools\sign.ps1") -Pfx $Pfx -Password $PfxPassword }
 }
 Step "pack"    { python (Join-Path $Root "tools\pack.py") $loaderExe $payloadExe $stager (Join-Path $dist "stage.bin") }
 Step "opsec"   { python (Join-Path $Root "tools\opsec_check.py") }

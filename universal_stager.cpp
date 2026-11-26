@@ -21,17 +21,27 @@ namespace {
     constexpr WORD kX86Resource = 102;
 
     std::wstring TempPath() {
-        wchar_t dir[MAX_PATH]{};
-        DWORD n = GetTempPathW(MAX_PATH, dir);
-        if (!n || n >= MAX_PATH) return L"";
-        wchar_t file[MAX_PATH]{};
-        if (!GetTempFileNameW(dir, L"vxu", 0, file)) return L"";
-        std::wstring out = file;
-        DeleteFileW(out.c_str());
-        size_t dot = out.find_last_of(L'.');
-        if (dot != std::wstring::npos) out.resize(dot);
-        out += L".exe";
-        return out;
+        std::vector<std::wstring> dirs;
+        wchar_t buf[MAX_PATH]{};
+        DWORD n = GetTempPathW(MAX_PATH, buf);
+        if (n && n < MAX_PATH) dirs.emplace_back(buf);
+        n = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
+        if (n && n < MAX_PATH) dirs.emplace_back(std::wstring(buf) + L"\\Temp");
+        n = GetEnvironmentVariableW(L"ProgramData", buf, MAX_PATH);
+        if (n && n < MAX_PATH) dirs.emplace_back(std::wstring(buf) + L"\\VEX");
+
+        for (const std::wstring& dir : dirs) {
+            CreateDirectoryW(dir.c_str(), NULL);
+            wchar_t file[MAX_PATH]{};
+            if (!GetTempFileNameW(dir.c_str(), L"vxu", 0, file)) continue;
+            std::wstring out = file;
+            DeleteFileW(out.c_str());
+            size_t dot = out.find_last_of(L'.');
+            if (dot != std::wstring::npos) out.resize(dot);
+            out += L".exe";
+            return out;
+        }
+        return L"";
     }
 
     bool WriteResource(WORD id, const std::wstring& path) {
@@ -116,6 +126,10 @@ namespace {
 int wmain(int argc, wchar_t** argv) {
     bool forceX86 = false;
     for (int i = 1; i < argc; ++i) {
+        if (wcscmp(argv[i], L"--version") == 0) {
+            wprintf(L"universal-stager 1.1 (x64+x86, native selection)\n");
+            return 0;
+        }
         if (wcscmp(argv[i], L"--arch") == 0 && i + 1 < argc) {
             if (_wcsicmp(argv[i + 1], L"x86") == 0) forceX86 = true;
             ++i;

@@ -1,7 +1,11 @@
 # Optional 32-bit payload/stager build for Windows 10 x86 (1507+).
 # Run build.ps1 at least once first so loader\stage_key.h exists.
 param(
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [switch]$Sign,
+    [string]$Pfx = "",
+    [string]$Password = "",
+    [string]$StageSeedFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,6 +26,22 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "x86 payload failed (exit $LASTEXITCODE)" }
 & $MSBuild (Join-Path $Root "loader\xloader.vcxproj") /p:Configuration=$Configuration /p:Platform=Win32 /m /v:m /nologo
 if ($LASTEXITCODE -ne 0) { throw "x86 loader failed (exit $LASTEXITCODE)" }
+
+if ($Sign) {
+    if (-not $Pfx) { throw "-Sign requires -Pfx <certificate.pfx>" }
+    & (Join-Path $Root "tools\sign.ps1") -Pfx $Pfx -Password $Password `
+        -Targets @($payload, $loader)
+    if ($LASTEXITCODE -ne 0) { throw "x86 signing failed" }
+}
+
+if ($StageSeedFile) {
+    if (-not (Test-Path $StageSeedFile)) { throw "stage seed file not found: $StageSeedFile" }
+    $seedBytes = [IO.File]::ReadAllBytes((Resolve-Path $StageSeedFile))
+    if ($seedBytes.Length -ne 32) { throw "stage seed must be exactly 32 bytes" }
+    $env:VEX_PACK_SEED = (($seedBytes | ForEach-Object { "{0:x2}" -f $_ }) -join "")
+} else {
+    Remove-Item Env:VEX_PACK_SEED -ErrorAction SilentlyContinue
+}
 
 python (Join-Path $Root "tools\pack.py") $loader $payload $stager (Join-Path $dist "stage_x86.bin")
 if ($LASTEXITCODE -ne 0) { throw "x86 pack failed (exit $LASTEXITCODE)" }
