@@ -294,7 +294,8 @@ Operator console:
   `VEX_PANIC_DRY=1` returns the target list without destroying anything.
 - **Shadow hardening**: shadow rows cannot be deleted by admins or by another
   shadow (root only), the audit-freeze exemption covers shadow, and
-  `/admin/root/2fa` targets the current shadow operator instead of root.
+  `/admin/2fa` targets the current operator; root no longer has a discoverable
+  2FA path for admins.
 - **C2 audit hardening (this build)**: `/api/report` now requires the per-victim
   HMAC like ping/exfil; `kill`/bulk-kill and arming clear a stale `pardon`
   flag (pardon still wins at ping); command claims are a single atomic
@@ -316,6 +317,16 @@ Operator console:
   separate 16-digit step-up password (PBKDF2 hash in the `stepup_pass_hash`
   setting), not TOTP enrollment. The unlock lasts 5 minutes and is bound to
   IP + user-agent.
+- **Role model**: `root` is a phantom role — its operator row, events, action
+  kinds, overrides, and 2FA page are hidden from admins; non-root sees only a
+  generic `/admin/2fa`, no `root@vex` chrome, no root-only controls, and root
+  activity is filtered from event feeds and victim timelines. Root remains
+  reachable only through its own console and step-up password.
+- **Affiliate ownership**: campaigns carry an `affiliate` owner. Affiliates see
+  only their own campaigns and machines at `/affiliate/campaign/<id>`, never
+  the global dashboard, and can download a decrypter only for a machine whose
+  status is exactly `paid` (unpaid returns 403). Admin/root retain full keys and
+  decrypter access.
 - **Business-state hardening**: every paid transition clears `detonate` and
   `pardon`, `api_ping` sleeps for paid/pardoned victims even with a stale arm
   flag, and paid/pardoned/dead victims reject detonate, kill, and lock/wipe

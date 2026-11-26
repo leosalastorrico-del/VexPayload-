@@ -45,7 +45,7 @@ def main() -> int:
     secret = (args.secret or load_secret(args.username)).strip()
     if not secret:
         print(f"[-] no TOTP secret for '{args.username}' in {c2db.DB_FILE}")
-        print("    enroll first at /admin/root/2fa, or pass --secret")
+        print("    enroll first at /admin/2fa, or pass --secret")
         return 1
 
     try:

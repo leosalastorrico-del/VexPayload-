@@ -55,8 +55,6 @@
     <input type="hidden" name="csrf" value="{{ csrf_token }}">
     <button class="btn" type="submit">ROOT RELEASE</button>
   </form>
-  {% else %}
-  <span class="btn dim locked" title="requires root">ROOT ONLY</span>
   {% endif %}
   <form method="post" action="{{ url_for('mark_paid', vid=v['vid']) }}" class="inline"
         onsubmit="return confirm('Mark as paid?')">

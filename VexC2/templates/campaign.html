@@ -9,6 +9,8 @@
     <input name="note" value="{{ c['note'] or '' }}">
     <label class="small">active</label>
     <input type="checkbox" name="active" value="1" {% if c['active'] %}checked{% endif %}>
+    <label class="small">affiliate owner</label>
+    <input name="affiliate" value="{{ c['affiliate'] or '' }}" placeholder="affiliate username">
     <label class="small">config JSON</label>
     <textarea name="config" rows="8">{{ c['config'] or '{}' }}</textarea>
     <div style="height:8px"></div>

@@ -19,7 +19,7 @@ One page per playbook. Every action that burns, rotates, or deletes state has a
 - Rotate `VEX_SECRET` (and `VEX_AUDIT_KEY` if used), then restart. Sessions and
   HMACs derived from the old secret die.
 - Review `/admin/audit`, `events` for `login_failed`, `login_blocked`,
-  `root_2fa_*`, `stepup_*`, `operator_*`, `panic_*`.
+  `2fa_*`, `stepup_*`, `operator_*`, `panic_*`.
 - If root was involved: rotate the vault master **after** exporting a backup;
   run `/admin/root/rotate-master` with a new master and verify all victims.
 

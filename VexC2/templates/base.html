@@ -398,7 +398,7 @@ body.portal .shell.auth main{display:block;padding-top:36px;max-width:1040px}
   <div class="main">
     {% if session.get('user') %}
     <header class="topbar">
-      <div class="crumb"><span class="marker">root@vex</span>:~# <b>{{ self.title() }}</b></div>
+      <div class="crumb"><span class="marker">{{ current_user }}@vex</span>:~# <b>{{ self.title() }}</b></div>
       <div class="topspacer"></div>
       <div class="live"><span class="dot"></span> SYS:ONLINE</div>
       <div class="clock" id="clock"></div>
@@ -416,7 +416,7 @@ body.portal .shell.auth main{display:block;padding-top:36px;max-width:1040px}
       </div>
       {% endif %}
       {% if lockdown and not is_root %}
-      <div class="root-banner">ROOT LOCKDOWN — the panel is read-only for operators.</div>
+      <div class="root-banner">SYSTEM LOCKDOWN — the panel is read-only for operators.</div>
       {% endif %}
       {% with msgs = get_flashed_messages(with_categories=true) %}
         {% for cat, msg in msgs %}

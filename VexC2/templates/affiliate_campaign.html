@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ c['name'] }}{% endblock %}
+{% block content %}
+<h1>{{ c['name'] }}</h1>
+<p class="sub">Campaign #{{ c['id'] }} · owner {{ c['affiliate'] or current_user }} · {{ 'active' if c['active'] else 'inactive' }}</p>
+
+<div class="panel">
+  <h2>Machines ({{ victims|length }})</h2>
+  <table>
+    <tr><th>host</th><th>status</th><th>price</th><th>paid at</th><th>last ping</th><th></th></tr>
+    {% for v in victims %}
+    <tr>
+      <td><b>{{ v['hostname'] or '?' }}</b><br><span class="sub small">{{ v['vid'][:16] }}…</span></td>
+      <td class="status-{{ v['status'] }}">{{ v['status'] }}</td>
+      <td>${{ '%.2f'|format(v['price'] or 0) }}</td>
+      <td class="small">{{ v['paid_at'] or '—' }}</td>
+      <td class="small">{{ v['last_ping'] or 'never' }}</td>
+      <td>
+        {% if v['status'] == 'paid' and v['aes_key'] %}
+          <a class="btn blue" href="{{ url_for('affiliate_decryptor', vid=v['vid']) }}">DECRYPTER .CPP</a>
+          {% if exe_build_available %}
+          <a class="btn blue" href="{{ url_for('affiliate_decryptor_exe', vid=v['vid']) }}">DECRYPTER .EXE</a>
+          {% endif %}
+        {% elif v['status'] == 'paid' %}
+          <span class="btn dim">NO KEY</span>
+        {% else %}
+          <span class="btn dim locked">PAYMENT REQUIRED</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="sub">no machines in this campaign</td></tr>
+    {% endfor %}
+  </table>
+  <p class="sub small">Only paid machines expose a decrypter. Unpaid machines stay locked.</p>
+</div>
+
+<p><a class="btn dim" href="{{ url_for('affiliate_home') }}">BACK</a></p>
+{% endblock %}

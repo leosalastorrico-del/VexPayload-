@@ -16,6 +16,20 @@
   </table>
 </div>
 <div class="panel">
+  <h2>My campaigns</h2>
+  <table>
+    <tr><th>id</th><th>name</th><th>victims</th><th>revenue</th><th>active</th><th></th></tr>
+    {% for c in campaigns %}
+    <tr><td>{{ c['id'] }}</td>
+      <td>{{ c['name'] }}</td>
+      <td>{{ c['victims'] }}</td>
+      <td>${{ '%.2f'|format(c['revenue'] or 0) }}</td>
+      <td>{{ 'yes' if c['active'] else 'no' }}</td>
+      <td><a class="btn dim" href="{{ url_for('affiliate_campaign', cid=c['id']) }}">OPEN</a></td></tr>
+    {% else %}<tr><td colspan="6" class="sub">no campaigns assigned to you</td></tr>{% endfor %}
+  </table>
+</div>
+<div class="panel">
   <h2>Request payout</h2>
   <form method="post" action="{{ url_for('affiliate_request') }}">
     <input type="hidden" name="csrf" value="{{ csrf_token }}">

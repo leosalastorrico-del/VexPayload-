@@ -105,7 +105,7 @@
       <dt>secure cookie</dt><dd>{{ 'set' if flags.tls_cookie else 'not set' }}</dd>
     </div>
     <p><a class="btn dim" href="{{ url_for('root_audit_json') }}">EXPORT AUDIT JSON</a>
-       <a class="btn" href="{{ url_for('root_2fa') }}">ROOT 2FA</a></p>
+       <a class="btn" href="{{ url_for('twofa') }}">2FA</a></p>
   </div>
   <div class="panel">
     <h2>Permission matrix</h2>

